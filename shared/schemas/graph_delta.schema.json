@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ampersand.local/schemas/graph_delta",
+  "title": "GraphDelta",
+  "description": "A Command — sequence of atomic ops produced by Extractor, applied by DeltaApplier.",
+  "type": "object",
+  "required": ["turn_id", "ops"],
+  "additionalProperties": false,
+  "properties": {
+    "turn_id": { "type": "string", "format": "uuid" },
+    "ops": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DeltaOp" }
+    }
+  },
+  "$defs": {
+    "DeltaOp": {
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "AddNode",
+          "required": ["kind", "node"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "const": "add_node" },
+            "node": {
+              "type": "object",
+              "description": "Node without created_at/updated_at (assigned by DB)",
+              "required": ["id", "story_id", "type", "status", "branch_tags", "provenance_turn_id", "properties"],
+              "additionalProperties": false,
+              "properties": {
+                "id":                 { "type": "string", "format": "uuid" },
+                "story_id":           { "type": "string", "format": "uuid" },
+                "type":               { "type": "string", "enum": ["character", "beat", "theme", "world_element", "thread"] },
+                "status":             { "type": "string", "enum": ["proposed", "committed", "rejected"] },
+                "branch_tags":        { "type": "array", "items": { "type": "string", "format": "uuid" } },
+                "provenance_turn_id": { "type": "string", "format": "uuid" },
+                "properties":         { "type": "object" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "title": "AddEdge",
+          "required": ["kind", "edge"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "const": "add_edge" },
+            "edge": { "$ref": "edge.schema.json" }
+          }
+        },
+        {
+          "type": "object",
+          "title": "UpdateProperty",
+          "required": ["kind", "node_id", "key", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":    { "type": "string", "const": "update_property" },
+            "node_id": { "type": "string", "format": "uuid" },
+            "key":     { "type": "string" },
+            "value":   {}
+          }
+        },
+        {
+          "type": "object",
+          "title": "SetStatus",
+          "required": ["kind", "node_id", "status"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":    { "type": "string", "const": "set_status" },
+            "node_id": { "type": "string", "format": "uuid" },
+            "status":  { "type": "string", "enum": ["proposed", "committed", "rejected"] }
+          }
+        },
+        {
+          "type": "object",
+          "title": "AddBranchTag",
+          "required": ["kind", "entity_kind", "entity_id", "branch_id"],
+          "additionalProperties": false,
+          "properties": {
+            "kind":        { "type": "string", "const": "add_branch_tag" },
+            "entity_kind": { "type": "string", "enum": ["node", "edge"] },
+            "entity_id":   { "type": "string", "format": "uuid" },
+            "branch_id":   { "type": "string", "format": "uuid" }
+          }
+        }
+      ]
+    }
+  }
+}

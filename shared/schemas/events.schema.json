@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ampersand.local/schemas/events",
+  "title": "GraphDeltaEvent",
+  "description": "SSE payload sent to subscribed clients after a delta is applied. schema_version is locked at 1; bump when breaking changes are made.",
+  "type": "object",
+  "required": ["schema_version", "story_id", "branch_id", "turn_id", "sequence_number", "applied_ops", "timestamp"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version":   { "type": "integer", "const": 1, "description": "Bump this when making breaking changes to event shape" },
+    "story_id":         { "type": "string", "format": "uuid" },
+    "branch_id":        { "type": "string", "format": "uuid" },
+    "turn_id":          { "type": "string", "format": "uuid" },
+    "sequence_number":  {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic per (story_id, branch_id), assigned by EventBroadcaster. Resets on backend restart (acceptable in v1)."
+    },
+    "applied_ops": {
+      "type": "array",
+      "description": "The DeltaOps from GraphDelta that were applied — enough to mutate client-side graph without re-fetching.",
+      "items": { "$ref": "graph_delta.schema.json#/$defs/DeltaOp" }
+    },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}

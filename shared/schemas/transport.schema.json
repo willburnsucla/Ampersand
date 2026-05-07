@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ampersand.local/schemas/transport",
+  "title": "TransportDTOs",
+  "description": "HTTP request/response shapes. Single source of truth so ApiClient (T-017) imports types from one place.",
+  "$defs": {
+    "Story": {
+      "type": "object",
+      "required": ["id", "owner_id", "title", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id":               { "type": "string", "format": "uuid" },
+        "owner_id":         { "type": "string" },
+        "title":            { "type": "string" },
+        "active_branch_id": { "type": "string", "format": "uuid" },
+        "created_at":       { "type": "string", "format": "date-time" }
+      }
+    },
+    "CreateStoryInput": {
+      "type": "object",
+      "required": ["title"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Branch": {
+      "type": "object",
+      "required": ["id", "story_id", "state", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id":                   { "type": "string", "format": "uuid" },
+        "story_id":             { "type": "string", "format": "uuid" },
+        "parent_branch_id":     { "type": "string", "format": "uuid" },
+        "state":                { "type": "string", "enum": ["active", "dormant", "committed", "graveyard"] },
+        "created_from_beat_id": { "type": "string", "format": "uuid" },
+        "name":                 { "type": "string" },
+        "created_at":           { "type": "string", "format": "date-time" }
+      }
+    },
+    "CreateBranchInput": {
+      "type": "object",
+      "required": ["story_id"],
+      "additionalProperties": false,
+      "properties": {
+        "story_id":             { "type": "string", "format": "uuid" },
+        "parent_branch_id":     { "type": "string", "format": "uuid" },
+        "created_from_beat_id": { "type": "string", "format": "uuid" },
+        "name":                 { "type": "string" }
+      }
+    },
+    "BranchTransitionInput": {
+      "type": "object",
+      "required": ["event"],
+      "additionalProperties": false,
+      "properties": {
+        "event": { "type": "string", "enum": ["switch_to_active", "switch_to_dormant", "commit", "abandon", "revive"] }
+      }
+    },
+    "TurnRequest": {
+      "type": "object",
+      "required": ["story_id", "branch_id", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "story_id":  { "type": "string", "format": "uuid" },
+        "branch_id": { "type": "string", "format": "uuid" },
+        "content":   { "type": "string", "minLength": 1, "maxLength": 32000 }
+      }
+    },
+    "TurnResult": {
+      "type": "object",
+      "required": ["turn_id", "reply", "applied_delta"],
+      "additionalProperties": false,
+      "properties": {
+        "turn_id": { "type": "string", "format": "uuid" },
+        "reply":   { "type": "string" },
+        "applied_delta": {
+          "type": "object",
+          "required": ["delta", "affected_node_ids", "affected_edge_ids"],
+          "properties": {
+            "delta":              { "$ref": "graph_delta.schema.json" },
+            "affected_node_ids":  { "type": "array", "items": { "type": "string", "format": "uuid" } },
+            "affected_edge_ids":  { "type": "array", "items": { "type": "string", "format": "uuid" } }
+          }
+        }
+      }
+    },
+    "GraphSnapshot": {
+      "type": "object",
+      "required": ["story_id", "branch_id", "nodes", "edges", "last_applied_sequence", "generated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "story_id":              { "type": "string", "format": "uuid" },
+        "branch_id":             { "type": "string", "format": "uuid" },
+        "nodes":                 { "type": "array", "items": { "$ref": "node.schema.json" } },
+        "edges":                 { "type": "array", "items": { "$ref": "edge.schema.json" } },
+        "last_applied_sequence": { "type": "integer", "minimum": 0 },
+        "generated_at":          { "type": "string", "format": "date-time" }
+      }
+    },
+    "QueryInput": {
+      "type": "object",
+      "required": ["story_id", "branch_id", "question"],
+      "additionalProperties": false,
+      "properties": {
+        "story_id":  { "type": "string", "format": "uuid" },
+        "branch_id": { "type": "string", "format": "uuid" },
+        "question":  { "type": "string", "minLength": 1 }
+      }
+    },
+    "Citation": {
+      "type": "object",
+      "required": ["kind", "id", "excerpt"],
+      "additionalProperties": false,
+      "properties": {
+        "kind":    { "type": "string", "enum": ["turn", "node"] },
+        "id":      { "type": "string", "format": "uuid" },
+        "excerpt": { "type": "string" }
+      }
+    },
+    "QueryAnswer": {
+      "type": "object",
+      "required": ["answer", "citations", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "answer":     { "type": "string" },
+        "citations":  { "type": "array", "items": { "$ref": "#/$defs/Citation" } },
+        "confidence": { "type": "string", "enum": ["grounded", "not_in_graph"] }
+      }
+    },
+    "Gap": {
+      "type": "object",
+      "required": ["id", "category", "title", "description", "related_node_ids", "suggested_question"],
+      "additionalProperties": false,
+      "properties": {
+        "id":                { "type": "string" },
+        "category":          { "type": "string", "enum": ["missing_arc", "undefined_relationship", "orphan_thread", "thin_character", "open_question"] },
+        "title":             { "type": "string" },
+        "description":       { "type": "string" },
+        "related_node_ids":  { "type": "array", "items": { "type": "string", "format": "uuid" } },
+        "suggested_question":{ "type": "string" }
+      }
+    },
+    "ArcPoint": {
+      "type": "object",
+      "required": ["beat_id", "sequence_index", "score"],
+      "additionalProperties": false,
+      "properties": {
+        "beat_id":        { "type": "string", "format": "uuid" },
+        "sequence_index": { "type": "number" },
+        "score":          { "type": "number" }
+      }
+    },
+    "CharacterArc": {
+      "type": "object",
+      "required": ["character_id", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "character_id": { "type": "string", "format": "uuid" },
+        "points":       { "type": "array", "items": { "$ref": "#/$defs/ArcPoint" } }
+      }
+    },
+    "TensionPoint": {
+      "type": "object",
+      "required": ["beat_id", "sequence_index", "score"],
+      "additionalProperties": false,
+      "properties": {
+        "beat_id":        { "type": "string", "format": "uuid" },
+        "sequence_index": { "type": "number" },
+        "score":          { "type": "number" }
+      }
+    },
+    "StructureCell": {
+      "type": "object",
+      "required": ["sequence_range", "density"],
+      "additionalProperties": false,
+      "properties": {
+        "sequence_range": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+        "density":        { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "ExportOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch_id":                   { "type": "string", "format": "uuid" },
+        "include_alternative_branches": { "type": "boolean", "default": false }
+      }
+    },
+    "ExportResult": {
+      "type": "object",
+      "required": ["markdown", "cited_turn_ids", "branch_name", "generated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "markdown":        { "type": "string" },
+        "cited_turn_ids":  { "type": "array", "items": { "type": "string", "format": "uuid" } },
+        "branch_name":     { "type": "string" },
+        "generated_at":    { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

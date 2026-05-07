@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ampersand.local/schemas/node",
+  "title": "Node",
+  "description": "A node in the story graph. Discriminated by type.",
+  "type": "object",
+  "required": ["id", "story_id", "type", "status", "branch_tags", "provenance_turn_id", "properties", "created_at", "updated_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id":                  { "type": "string", "format": "uuid" },
+    "story_id":            { "type": "string", "format": "uuid" },
+    "type":                { "type": "string", "enum": ["character", "beat", "theme", "world_element", "thread"] },
+    "status":              { "type": "string", "enum": ["proposed", "committed", "rejected"] },
+    "branch_tags":         { "type": "array", "items": { "type": "string", "format": "uuid" }, "description": "UUIDs of branches this node belongs to" },
+    "provenance_turn_id":  { "type": "string", "format": "uuid", "description": "Turn that introduced this node — non-null, enforced by DB" },
+    "properties":          { "type": "object", "description": "Type-specific properties; validated per subtype by DeltaApplier" },
+    "created_at":          { "type": "string", "format": "date-time" },
+    "updated_at":          { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "CharacterProperties": {
+      "type": "object",
+      "required": ["name", "description", "traits"],
+      "additionalProperties": false,
+      "properties": {
+        "name":        { "type": "string" },
+        "description": { "type": "string" },
+        "traits":      { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "BeatProperties": {
+      "type": "object",
+      "required": ["title", "description", "sequence_index", "participant_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "title":           { "type": "string" },
+        "description":     { "type": "string" },
+        "sequence_index":  { "type": "number" },
+        "participant_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } }
+      }
+    },
+    "ThemeProperties": {
+      "type": "object",
+      "required": ["name", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "name":        { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "WorldElementProperties": {
+      "type": "object",
+      "required": ["name", "description", "rules"],
+      "additionalProperties": false,
+      "properties": {
+        "name":        { "type": "string" },
+        "description": { "type": "string" },
+        "rules":       { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ThreadProperties": {
+      "type": "object",
+      "required": ["name", "setup_beat_id"],
+      "additionalProperties": false,
+      "properties": {
+        "name":           { "type": "string" },
+        "setup_beat_id":  { "type": "string", "format": "uuid" },
+        "payoff_beat_id": { "type": "string", "format": "uuid" }
+      }
+    }
+  }
+}

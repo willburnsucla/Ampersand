@@ -1,0 +1,61 @@
+"""
+SSE endpoint — T-014.
+
+The SSE route subscribes a client as an observer to EventBroadcaster.
+It ONLY subscribes — it never calls broadcaster.publish().
+Publishing happens exclusively inside ConversationOrchestrator (T-015).
+
+Wire format: each event is `event: graph_delta\ndata: <json>\n\n`
+Heartbeat comment every 15s keeps the connection alive through proxies.
+"""
+from __future__ import annotations
+
+import asyncio
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sse_starlette.sse import EventSourceResponse  # type: ignore[import]
+
+from app.auth.clerk_gate import UserContext, get_current_user
+from app.broadcast.broadcaster import EventBroadcaster, get_broadcaster
+
+sse_router = APIRouter(tags=["sse"])
+
+HEARTBEAT_INTERVAL = 15  # seconds
+
+
+@sse_router.get(
+    "/stories/{story_id}/events",
+    summary="SSE stream of graph delta events for a story",
+    response_class=EventSourceResponse,
+)
+async def story_events(
+    story_id: UUID,
+    broadcaster: EventBroadcaster = Depends(get_broadcaster),
+    current_user: UserContext = Depends(get_current_user),
+) -> EventSourceResponse:
+    """
+    Subscribe to real-time GraphDeltaEvents for story_id.
+    Only events for the requesting user's story are delivered.
+    Each event carries a monotonic sequence_number per (story, branch).
+    """
+    # TODO (T-016): Verify current_user owns story_id — add StoryRepo check here
+    # For now in mock mode any authenticated user can subscribe to any story.
+
+    async def event_generator():
+        subscription = await broadcaster.subscribe(story_id)
+        try:
+            async for event in subscription:
+                yield {
+                    "event": "graph_delta",
+                    "data": event.model_dump_json(),
+                }
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await subscription.aclose()
+
+    return EventSourceResponse(
+        event_generator(),
+        ping=HEARTBEAT_INTERVAL,
+    )

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ampersand.local/schemas/edge",
+  "title": "Edge",
+  "description": "A directed edge between two nodes in the story graph.",
+  "type": "object",
+  "required": ["id", "source_id", "target_id", "relation", "branch_tags", "provenance_turn_id"],
+  "additionalProperties": false,
+  "properties": {
+    "id":                 { "type": "string", "format": "uuid" },
+    "source_id":          { "type": "string", "format": "uuid" },
+    "target_id":          { "type": "string", "format": "uuid" },
+    "relation":           {
+      "type": "string",
+      "enum": ["participates_in", "introduced_by", "contradicts", "supports", "depends_on"]
+    },
+    "branch_tags":        { "type": "array", "items": { "type": "string", "format": "uuid" } },
+    "provenance_turn_id": { "type": "string", "format": "uuid" }
+  }
+}
