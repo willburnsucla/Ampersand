@@ -1,8 +1,8 @@
 # Ampersand
 
-A story-development IDE for writers. Conversation in, knowledge graph out — characters, beats, themes, world elements, and threads, all branchable like git.
+A story-development IDE for writers, with natural language conversational input, and knowledge graph-based out puts. Track characters, beats, themes, world elements, and threads, all branchable like git.
 
-> **Status:** Week 1 scaffold complete. Mock backend runs end-to-end without a database. Real backend (Postgres + Claude + Clerk) wires in over Weeks 2–3.
+> **Status:** Scaffold complete. Mock backend runs end-to-end without a database. Real backend (Postgres + Claude + Clerk) wires in over next two weeks.
 
 ---
 
@@ -52,7 +52,7 @@ ampersand/
 | Python | 3.11+ | `uv python install 3.11` |
 | `uv` | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Node | 18+ | [nodejs.org](https://nodejs.org) |
-| Docker Desktop | latest | [docker.com](https://www.docker.com/products/docker-desktop/) — needed only for real-mode DB |
+| Docker Desktop | latest | [docker.com](https://www.docker.com/products/docker-desktop/) - (needed only for real-mode DB) |
 
 ---
 
@@ -127,7 +127,7 @@ make format           # ruff format + prettier
 
 ## Architectural invariants — read before opening a PR
 
-These are the rules that keep Ampersand from becoming a "Big Ball of Mud." Reviewers will reject PRs that break them.
+These are the rules that will keep our app from becoming a a big ball of mud. We should should reject PRs that break them.
 
 1. **No raw DB access outside `/backend/app/repos/`.** Every read or write goes through a Repository.
 2. **Branch-scoped reads only via `GraphRepo.for_branch(branch_id)`.** The `WHERE branch_id = ANY(branch_tags)` filter is a secret of `GraphRepo` — no other module constructs it.
@@ -170,12 +170,12 @@ The single source of truth for these types is `/shared/schemas/*.schema.json`. P
 
 Roughly 25 tasks (T-001…T-025) organized into 7 streams that build in parallel after a Week 1 foundation. The full plan is at `/Users/burns/.claude/plans/users-burns-downloads-ampersand-initial-stateful-forest.md` (or check the design doc PDF in the team Drive).
 
-| Week | Tasks | What ships |
+| Week | Tasks | What we will ship |
 |---|---|---|
-| 1 | T-001 schemas, T-002 DB, T-003 repos, T-004 mock backend, T-005 branch SM, T-013 auth, T-014 broadcaster | **✅ Done — `make dev-mock` works end-to-end** |
-| 2 | T-006 Extractor+Embedder, T-007 ContextBuilder, T-008 DeltaApplier, T-009 Exporter, T-010 GapAnalyzer, T-011 QueryService, T-012 VizDataBuilder; T-017–T-019 frontend infra; T-021/T-023/T-024 views | All services + most views, parallel against mock |
-| 3 | T-015 Orchestrator, T-016 routes, T-020 ConversationView, T-022 VisualizationsView | Real backend converges |
-| 4 | T-025 e2e + deploy | Playwright tests + Vercel/Railway/Neon |
+| 6 | T-001 schemas, T-002 DB, T-003 repos, T-004 mock backend, T-005 branch SM, T-013 auth, T-014 broadcaster | ** Done — `make dev-mock` works end-to-end** |
+| 7 | T-006 Extractor+Embedder, T-007 ContextBuilder, T-008 DeltaApplier, T-009 Exporter, T-010 GapAnalyzer, T-011 QueryService, T-012 VizDataBuilder; T-017–T-019 frontend infra; T-021/T-023/T-024 views | All services + most views, parallel against mock |
+| 8 | T-015 Orchestrator, T-016 routes, T-020 ConversationView, T-022 VisualizationsView | Real backend converges |
+| 9 | T-025 e2e + deploy | Playwright tests + Vercel/Railway/Neon |
 
 ---
 
@@ -185,6 +185,7 @@ Roughly 25 tasks (T-001…T-025) organized into 7 streams that build in parallel
 - **Add a new endpoint:** route handler in `/backend/app/api/router.py` (≤10 lines, dispatches to a service). The service goes in `/backend/app/services/`.
 - **Add a new repository method:** edit the abstract base + both `InMemory*` and `Postgres*` impls. Add a unit test that runs against both — they should pass the same suite.
 - **Add a new view:** new `app/(authed)/<route>/page.tsx`. Read graph state via `useGraphStore` selectors — never call `ApiClient` for graph data inside a component.
+- **Using an AI for development:** keep a log of all prompts and outputs, to be submitted with the final project. It is the policy of the course that we maintain transparency in our AI use, to maintain the integrity of this being a course focused around US designing and implementing the software. That being said, using it for working with unfamiliar syntaxes, so long as you are clearly specifying the actions that need to be taken and showing a clear understanding of what you are developing, it should be no issue. 
 
 ---
 
@@ -217,8 +218,13 @@ CI runs lint → unit → integration → e2e (Playwright) on every PR.
 
 | Role | Person |
 |---|---|
-| Owner | Will Burns ([@willburnsucla](https://github.com/willburnsucla)) |
-| Course | _(fill in)_ |
-| TA | _(fill in)_ |
+| Team Member | William Burns ([@willburnsucla](https://github.com/willburnsucla)) |
+| Team Member | Gabriel Sanchez _(fill in ur Github :) )_ |
+| Team Member | Thomas McConnell _(fill in ur Github :))_ |
+| Team Member | Lam Luong _(fill in ur Github :))_ |
+| Team Member | Emily Zhang _(fill in ur Github :))_ |
+| Team Member | Ashley Wu _(fill in ur Github :))_ |
+| Team Member | Hana Chloe Yoon  _(fill in ur Github :))_ |
+| Course | CS130 |
 
 PRs welcome. Read the architectural invariants first.
