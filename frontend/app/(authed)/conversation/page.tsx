@@ -1,15 +1,11 @@
 'use client'
 
 import { useStory } from '@/lib/story-context'
-import { useGraphBootstrap } from '@/lib/use-graph-bootstrap'
 import { ChatPane } from '@/components/conversation/chat-pane'
 import { GraphStatsPane } from '@/components/conversation/graph-stats-pane'
 
 export default function ConversationPage() {
   const { storyId, branchId, isLoading, error } = useStory()
-
-  // Wire SSE + initial graph snapshot
-  useGraphBootstrap(storyId, branchId)
 
   if (isLoading) {
     return (

@@ -57,10 +57,21 @@ export class EventSourceSseClient implements SseClient {
       }
     })
 
+    // Track whether we've ever errored — if so, the next `open` is a reconnect
+    let hasErrored = false
+
     source.onerror = () => {
+      hasErrored = true
       handlers.onError?.(new Error('SSE connection error'))
-      // EventSource auto-reconnects; fire onReconnected when it succeeds
-      source.onopen = () => handlers.onReconnected?.()
+      // EventSource auto-reconnects; onopen below fires when it succeeds
+    }
+
+    source.onopen = () => {
+      if (hasErrored) {
+        hasErrored = false
+        handlers.onReconnected?.()
+      }
+      // First open (no prior error) is just the initial connection — no callback
     }
 
     return {

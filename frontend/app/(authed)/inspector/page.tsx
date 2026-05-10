@@ -19,7 +19,7 @@ export default function InspectorPage() {
   if (!isReady) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-foreground/50">
-        Graph not loaded — open Conversation to start writing.
+        Loading graph…
       </div>
     )
   }

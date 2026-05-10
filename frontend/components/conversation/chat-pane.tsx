@@ -2,15 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { HttpApiClient } from '@/lib/api-client'
-import { useGetToken } from '@/lib/auth-client'
+import { useApiClient } from '@/lib/use-api-client'
+import { useConversationStore, useMessages, type ChatMessage } from '@/lib/conversation-store'
 import type { TurnResult } from '@/lib/types'
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-}
 
 interface ChatPaneProps {
   storyId: string
@@ -18,29 +12,30 @@ interface ChatPaneProps {
 }
 
 export function ChatPane({ storyId, branchId }: ChatPaneProps) {
-  const getToken = useGetToken()
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const apiClient = useApiClient()
+  const messages = useMessages(storyId, branchId)
+  const appendMessage = useConversationStore((s) => s.appendMessage)
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const mutation = useMutation({
-    mutationFn: async (content: string) => {
-      const client = new HttpApiClient(getToken)
-      return client.postTurn({
+    mutationFn: async (content: string): Promise<TurnResult> => {
+      return (await apiClient.postTurn({
         story_id: storyId,
         branch_id: branchId,
         content,
-      }) as Promise<TurnResult>
+      })) as TurnResult
     },
     onSuccess: (data) => {
-      setMessages((prev) => [
-        ...prev,
-        { id: data.turn_id, role: 'assistant', content: data.reply },
-      ])
+      appendMessage(storyId, branchId, {
+        id: `assistant-${data.turn_id}`,  // namespaced — avoids collision with user IDs
+        role: 'assistant',
+        content: data.reply || '(empty reply)',
+      })
     },
   })
 
-  // Auto-scroll on new messages
+  // Auto-scroll on new messages or when thinking starts
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, mutation.isPending])
@@ -50,11 +45,18 @@ export function ChatPane({ storyId, branchId }: ChatPaneProps) {
     const content = input.trim()
     if (!content || mutation.isPending) return
 
-    // Optimistic: show user message immediately
-    setMessages((prev) => [
-      ...prev,
-      { id: `user-${Date.now()}`, role: 'user', content },
-    ])
+    // Optimistic: show user message immediately. Use crypto.randomUUID for
+    // collision-free ID (falls back to Date.now+random for older browsers).
+    const userId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? `user-${crypto.randomUUID()}`
+        : `user-${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+    appendMessage(storyId, branchId, {
+      id: userId,
+      role: 'user',
+      content,
+    })
     setInput('')
     mutation.mutate(content)
   }
@@ -63,7 +65,7 @@ export function ChatPane({ storyId, branchId }: ChatPaneProps) {
     <div className="flex flex-col h-full">
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {messages.length === 0 && (
+        {messages.length === 0 && !mutation.isPending && (
           <p className="text-sm text-foreground/40 text-center mt-12">
             Start writing your story. Tell Ampersand about your characters, setting, or first scene.
           </p>
