@@ -56,12 +56,40 @@ ampersand/
 
 ---
 
-## Quickstart — mock mode (no DB, no API keys, ~30s)
+## Quickstart — mock mode (no DB, ~2 min)
 
 ```bash
 git clone https://github.com/willburnsucla/Ampersand.git
 cd Ampersand
-make install         # uv sync + npm install
+```
+
+**1. Install `uv` (Python package manager) if you don't have it:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env   # load uv into your current shell session
+```
+
+**2. Install dependencies:**
+```bash
+make install   # runs uv sync + npm install
+```
+
+> If `npm install` fails with a peer-dep conflict, run `cd frontend && npm install --legacy-peer-deps` instead.
+
+**3. Set up Clerk keys for the frontend (required even in mock mode):**
+
+Create `frontend/.env.local` with the following (get free keys at [dashboard.clerk.com](https://dashboard.clerk.com)):
+```
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/conversation
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/conversation
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+**4. Start the servers:**
+```bash
 make dev-mock        # backend on :8000, frontend on :3000
 ```
 
@@ -208,7 +236,9 @@ CI runs lint → unit → integration → e2e (Playwright) on every PR.
 | `make migrate` errors with `connection refused` | `make db-up` first; wait for healthcheck |
 | `make dev` fails with `pgvector` error | Use the `pgvector/pgvector:pg16` image (already in `docker-compose.yml`); `make db-destroy && make db-up && make migrate` to recreate |
 | `make codegen` can't find `datamodel-codegen` | `cd backend && uv sync` first |
-| Frontend `npm install` peer-dep conflict | Add `--legacy-peer-deps` or `--force` |
+| `uv: command not found` after installing uv | Run `source $HOME/.local/bin/env` to load uv into your current shell session |
+| Frontend `npm install` peer-dep conflict | Run `cd frontend && npm install --legacy-peer-deps` |
+| Frontend Clerk error: `Missing publishableKey` | Create `frontend/.env.local` with your Clerk public key — required even in mock mode (see Quickstart step 3) |
 | Mock backend doesn't return a node for my message | The MockExtractor matches on the keywords `detective`, `wizard`, `forest`, `chapter`, `theme`; otherwise it returns a generic Character |
 | `401 Unauthorized` in mock mode | Send any value as `Authorization: Bearer <anything>` — `MockAuthGate` accepts any token but the `HTTPBearer` dep still requires the header |
 
