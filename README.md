@@ -219,7 +219,7 @@ CI runs lint → unit → integration → e2e (Playwright) on every PR.
 | Role | Person |
 |---|---|
 | Team Member | William Burns ([@willburnsucla](https://github.com/willburnsucla)) |
-| Team Member | Gabriel Sanchez _(fill in ur Github :) )_ |
+| Team Member | Gabriel Sanchez _([@GSANC10](https://github.com/GSANC10)_ |
 | Team Member | Thomas McConnell _(fill in ur Github :))_ |
 | Team Member | Lam Luong _(fill in ur Github :))_ |
 | Team Member | Emily Zhang _(fill in ur Github :))_ |
