@@ -65,7 +65,7 @@ async def create_story(
     story_repo: StoryRepo = Depends(get_story_repo),
     current_user: UserContext = Depends(get_current_user),
 ) -> Story:
-    return await story_repo.create(body, owner_id=current_user.clerk_user_id)
+    return await story_repo.create(body, owner_id=current_user.user_id)
 
 
 @router.get("/stories", response_model=list[Story], tags=["stories"])
@@ -73,7 +73,7 @@ async def list_stories(
     story_repo: StoryRepo = Depends(get_story_repo),
     current_user: UserContext = Depends(get_current_user),
 ) -> list[Story]:
-    return await story_repo.list(owner_id=current_user.clerk_user_id)
+    return await story_repo.list(owner_id=current_user.user_id)
 
 
 # ── Graph snapshot ────────────────────────────────────────────────────────────

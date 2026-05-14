@@ -56,7 +56,7 @@ def create_app() -> FastAPI:
     if settings.is_mock:
         from app.auth.clerk_gate import MockAuthGate, UserContext, get_current_user
 
-        mock_user = UserContext(clerk_user_id="mock-user-clerk-id", email="dev@ampersand.local")
+        mock_user = UserContext(user_id="mock-user-id", email="dev@ampersand.local")
         app.dependency_overrides[get_current_user] = lambda: mock_user
 
     # ── Routers ───────────────────────────────────────────────────────────────

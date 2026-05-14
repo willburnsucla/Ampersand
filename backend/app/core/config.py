@@ -1,4 +1,4 @@
-"""
+on"""
 Application settings loaded from environment variables / .env file.
 All other modules import `settings` from here — never read env vars directly.
 """
@@ -24,14 +24,13 @@ class Settings(BaseSettings):
     # ── Voyage AI (embeddings) ────────────────────────────────────────────────
     voyage_api_key: str = ""
 
-    # ── Clerk ─────────────────────────────────────────────────────────────────
-    clerk_secret_key: str = ""
-    clerk_publishable_key: str = ""
-    clerk_jwt_issuer: str = ""
+    # -- Supabase ---------------------------------
+    supabase_jwt_secret: str = ""
+
 
     # ── Backend mode ──────────────────────────────────────────────────────────
     # "mock"  → InMemoryGraphRepo + MockExtractor + MockAuthGate (no DB)
-    # "real"  → PostgresGraphRepo + ClaudeExtractor + ClerkAuthGate
+    # "real"  → PostgresGraphRepo + ClaudeExtractor + SupabaseAuthGate
     ampersand_backend_mode: str = Field(default="mock", alias="AMPERSAND_BACKEND_MODE")
 
     # ── Server ────────────────────────────────────────────────────────────────

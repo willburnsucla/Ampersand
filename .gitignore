@@ -17,7 +17,7 @@ out/
 .turbo/
 
 # Env
-backend/ .env
+backend/.env
 .env
 .env.local
 .env.*.local
