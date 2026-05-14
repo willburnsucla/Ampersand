@@ -1,12 +1,40 @@
 'use client'
 
-import { RedirectToSignIn } from '@clerk/nextjs'
-import { useAuth } from '@clerk/nextjs'
+import { RedirectToSignIn, useAuth } from '@clerk/nextjs'
+import { StoryProvider, useStory } from '@/lib/story-context'
+import { useGraphBootstrap } from '@/lib/use-graph-bootstrap'
+import { Sidebar } from '@/components/nav/sidebar'
 
 export default function AuthedLayout({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoaded } = useAuth()
 
   if (!isLoaded) return null
   if (!isSignedIn) return <RedirectToSignIn />
-  return <>{children}</>
+
+  return (
+    <StoryProvider>
+      <AuthedShell>{children}</AuthedShell>
+    </StoryProvider>
+  )
+}
+
+/**
+ * Inner shell — split out so it can call useStory()/useGraphBootstrap()
+ * which require StoryProvider as an ancestor.
+ */
+function AuthedShell({ children }: { children: React.ReactNode }) {
+  const { storyId, branchId } = useStory()
+
+  // Bootstrap graph + SSE once per session — keeps Inspector / Visualizations
+  // working without requiring the user to visit Conversation first
+  useGraphBootstrap(storyId, branchId)
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      <Sidebar />
+      <main className="flex-1 overflow-auto">
+        {children}
+      </main>
+    </div>
+  )
 }
