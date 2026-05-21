@@ -4,7 +4,7 @@ What the frontend team builds against. None of these endpoints exist yet (Module
 
 ## Setup
 
-**Base URL:** `${NEXT_PUBLIC_API_BASE_URL}/api/v1` (FastAPI). Defaults to `http://localhost:8000` in dev.
+**Base URL:** the API base from your env, plus `/api/v1` (FastAPI). Defaults to `http://localhost:8000/api/v1` in dev.
 
 **Auth:** every request carries `Authorization: Bearer <supabase_jwt>`. Get the JWT from the Supabase JS client.
 
@@ -23,7 +23,7 @@ The practical consequence: the conversation turn response is intentionally thin.
 
 ## TypeScript types
 
-Copy these into `frontend/lib/types/`. When codegen lands they get replaced. Until then, hand-keep them in sync with `backend/app/domain/models_v2.py`.
+Drop these into your types directory. When codegen lands they get replaced. Until then, keep them in sync with `backend/app/domain/models_v2.py`.
 
 ```typescript
 type UUID = string;
