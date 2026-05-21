@@ -1,4 +1,4 @@
-on"""
+"""
 Application settings loaded from environment variables / .env file.
 All other modules import `settings` from here — never read env vars directly.
 """
