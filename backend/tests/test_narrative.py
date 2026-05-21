@@ -1,4 +1,4 @@
-"""Narrative analysis tests — covers the Tian et al. 2024 bias signals."""
+"""Narrative analysis tests. Covers the Tian et al. 2024 bias signals."""
 from __future__ import annotations
 
 import uuid

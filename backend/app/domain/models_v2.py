@@ -1,4 +1,4 @@
-"""v2 domain contract — Pydantic models for the wire/UI surface. No ORM or SQL."""
+"""v2 domain contract. Pydantic models for the wire/UI surface, no ORM or SQL."""
 from __future__ import annotations
 
 import uuid
@@ -25,14 +25,14 @@ IssueType    = Literal[
 ]
 IssueStatus  = Literal["open", "acknowledged", "resolved"]
 
-# these are just the labels for the narrative analysis — the actual functions
+# these are just the labels for the narrative analysis. the actual functions
 # live in narrative.py.
 #
 # TurningPoint is capped at 5 because thats what papalampidi has, but really
 # these are kinds not ordinals (the order's already in sequence_index_in_branch).
 # if we ever want longer stories with subplots or stuff like double-man-in-hole
-# (which needs two dips), the move is probably to switch to semantic kinds —
-# opportunity, change_of_plans, major_setback, etc — and let multiple beats
+# (which needs two dips), the move is probably to switch to semantic kinds
+# like opportunity, change_of_plans, major_setback, etc, and let multiple beats
 # share one. only catch is classify_arc would need a tiebreaker to pick THE
 # major setback when there's more than one.
 VonnegutArc  = Literal[

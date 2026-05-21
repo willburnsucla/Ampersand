@@ -1,7 +1,7 @@
 """Arc classification and pacing-anomaly detection over a branch of beats.
 
 The arc taxonomy (VonnegutArc) and turning-point labels (TurningPoint) live
-in models_v2 — this module is just the functions that use them.
+in models_v2. This module is just the functions that use them.
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def classify_arc(beats: list[Beat]) -> VonnegutArc | None:
 
     Needs TP1, TP4, TP5 tagged with valence. TP3 (if also tagged) lets us
     distinguish cinderella from rags_to_riches and oedipus from riches_to_rags.
-    Returns None on ambiguous shapes — never guesses.
+    Returns None on ambiguous shapes rather than guessing.
     """
     sorted_beats = sorted(beats, key=lambda b: b.sequence_index_in_branch)
     tps = {b.turning_point: b for b in sorted_beats if b.turning_point is not None}
@@ -80,7 +80,7 @@ def classify_arc(beats: list[Beat]) -> VonnegutArc | None:
 # ── Anomaly detection ─────────────────────────────────────────────────────────
 
 def detect_arc_anomalies(beats: list[Beat]) -> list[Anomaly]:
-    """Flag macro-level pacing issues — monotonic valence + flat second half."""
+    """Flag macro-level pacing issues (monotonic valence, flat second half)."""
     scored = [b for b in beats if b.valence is not None]
     if len(scored) < 4:
         return []
@@ -92,7 +92,7 @@ def detect_arc_anomalies(beats: list[Beat]) -> list[Anomaly]:
         out.append(Anomaly(
             kind="arc",
             message=(
-                "Valence rises monotonically across the branch — common in "
+                "Valence rises monotonically across the branch, common in "
                 "LLM-generated stories. Consider a setback to add tension."
             ),
             related_beat_ids=tuple(b.id for b in scored),
@@ -103,7 +103,7 @@ def detect_arc_anomalies(beats: list[Beat]) -> list[Anomaly]:
     if len(second_half) >= 3 and _stdev(second_half) < 0.05:
         out.append(Anomaly(
             kind="arc",
-            message="Second-half valence is flat — emotional stakes may be plateauing.",
+            message="Second-half valence is flat. Emotional stakes may be plateauing.",
             related_beat_ids=tuple(b.id for b in scored[midpoint:]),
         ))
 
@@ -130,7 +130,7 @@ def detect_tp_anomalies(beats: list[Beat]) -> list[Anomaly]:
             out.append(Anomaly(
                 kind="turning_point",
                 message=(
-                    f"{tp.upper()} arrives at {position:.0%} through the branch — "
+                    f"{tp.upper()} arrives at {position:.0%} through the branch, "
                     f"earlier than typical (~{expected:.0%}). Pacing may feel rushed."
                 ),
                 related_beat_ids=(beat.id,),
@@ -139,7 +139,7 @@ def detect_tp_anomalies(beats: list[Beat]) -> list[Anomaly]:
     if total >= 8 and "tp4" not in tagged:
         out.append(Anomaly(
             kind="turning_point",
-            message="No Major Setback (TP4) tagged yet — consider where the story turns.",
+            message="No Major Setback (TP4) tagged yet. Consider where the story turns.",
         ))
 
     tp_to_position = {b.turning_point: i for i, b in enumerate(sorted_beats) if b.turning_point}
