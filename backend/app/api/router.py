@@ -19,11 +19,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth.clerk_gate import UserContext, get_current_user
 from app.broadcast.broadcaster import EventBroadcaster, get_broadcaster
+from app.security import PromptSecurityManager, SecurityException
 from app.core.dependencies import (
     get_branch_repo,
     get_conversation_repo,
     get_extractor,
     get_graph_repo,
+    get_prompt_security_manager,
     get_provenance_index,
     get_story_repo,
 )
@@ -149,6 +151,7 @@ async def post_turn(
     prov_index: ProvenanceIndex = Depends(get_provenance_index),
     extractor: Extractor = Depends(get_extractor),
     broadcaster: EventBroadcaster = Depends(get_broadcaster),
+    security_manager: PromptSecurityManager = Depends(get_prompt_security_manager),
     current_user: UserContext = Depends(get_current_user),
 ) -> TurnResult:
     """
@@ -175,6 +178,15 @@ async def post_turn(
         recent_turns=[],
         relevant_nodes=[],
     )
+
+    # 2.5. Sanitize and validate context (Prompt Security Manager)
+    try:
+        ctx = await security_manager.process_context(ctx, body.story_id, body.branch_id)
+    except SecurityException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.sanitized_message,
+        ) from exc
 
     # 3. Extract (MockExtractor or ClaudeExtractor depending on mode)
     result = await extractor.extract(ctx, turn_id=turn_id)
