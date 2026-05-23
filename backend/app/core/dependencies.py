@@ -8,7 +8,8 @@ Route handlers NEVER import repos directly — they use these dependency functio
 from app.core.config import settings
 from app.repos.graph_repo import GraphRepo, InMemoryGraphRepo, PostgresGraphRepo
 from app.repos.story_repo import InMemoryStoryRepo, PostgresStoryRepo, StoryRepo
-from app.repos.branch_repo import BranchRepo, InMemoryBranchRepo, PostgresBranchRepo
+from app.repos.branch_repo import BranchRepo, SqlBranchRepo
+
 from app.repos.conversation_repo import (
     ConversationRepo,
     InMemoryConversationRepo,
@@ -24,11 +25,14 @@ from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
 # ── InMemory singletons (shared state for the lifetime of the process) ────────
 _graph_repo = InMemoryGraphRepo()
 _story_repo = InMemoryStoryRepo()
-_branch_repo = InMemoryBranchRepo()
 _conv_repo = InMemoryConversationRepo()
 _prov_index = InMemoryProvenanceIndex()
 _mock_extractor = MockExtractor()
 
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db import get_db
 
 # ── Dependency provider functions (used with FastAPI Depends()) ───────────────
 
@@ -45,11 +49,10 @@ def get_story_repo() -> StoryRepo:
     raise NotImplementedError("Real mode not yet wired")
 
 
-def get_branch_repo() -> BranchRepo:
+def get_branch_repo(session: AsyncSession = Depends(get_db)) -> BranchRepo:
     if settings.is_mock:
-        return _branch_repo
-    raise NotImplementedError("Real mode not yet wired")
-
+        raise NotImplementedError("BranchRepo has no mock implementation; use real mode")
+    return SqlBranchRepo(session)
 
 def get_conversation_repo() -> ConversationRepo:
     if settings.is_mock:
