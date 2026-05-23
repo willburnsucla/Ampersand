@@ -20,6 +20,12 @@ from app.repos.provenance_index import (
     ProvenanceIndex,
 )
 from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
+from app.repos.setting_repo import SettingRepo, SqlSettingRepo
+
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.db import get_db
+
 
 # ── InMemory singletons (shared state for the lifetime of the process) ────────
 _graph_repo = InMemoryGraphRepo()
@@ -67,3 +73,8 @@ def get_extractor() -> Extractor:
     if settings.is_mock:
         return _mock_extractor
     return ClaudeExtractor()
+
+def get_setting_repo(session: AsyncSession = Depends(get_db)) -> SettingRepo:
+    if settings.is_mock:
+        raise NotImplementedError("SettingRepo has no mock implementation; use real mode")
+    return SqlSettingRepo(session)
