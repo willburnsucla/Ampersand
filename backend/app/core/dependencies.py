@@ -19,6 +19,9 @@ from app.repos.provenance_index import (
     PostgresProvenanceIndex,
     ProvenanceIndex,
 )
+from app.repos.character_repo import CharacterRepo, SqlCharacterRepo
+
+
 from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
 
 # ── InMemory singletons (shared state for the lifetime of the process) ────────
@@ -29,6 +32,9 @@ _conv_repo = InMemoryConversationRepo()
 _prov_index = InMemoryProvenanceIndex()
 _mock_extractor = MockExtractor()
 
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.db import get_db
 
 # ── Dependency provider functions (used with FastAPI Depends()) ───────────────
 
@@ -67,3 +73,9 @@ def get_extractor() -> Extractor:
     if settings.is_mock:
         return _mock_extractor
     return ClaudeExtractor()
+
+
+def get_character_repo(session: AsyncSession = Depends(get_db)) -> CharacterRepo:
+    if settings.is_mock:
+        raise NotImplementedError("CharacterRepo has no mock implementation; use real mode")
+    return SqlCharacterRepo(session)
