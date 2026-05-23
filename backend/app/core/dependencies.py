@@ -21,6 +21,13 @@ from app.repos.provenance_index import (
 )
 from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
 
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db import get_db
+from app.repos.beat_repo import BeatRepo, SqlBeatRepo
+
+
 # ── InMemory singletons (shared state for the lifetime of the process) ────────
 _graph_repo = InMemoryGraphRepo()
 _story_repo = InMemoryStoryRepo()
@@ -67,3 +74,8 @@ def get_extractor() -> Extractor:
     if settings.is_mock:
         return _mock_extractor
     return ClaudeExtractor()
+
+def get_beat_repo(session: AsyncSession = Depends(get_db)) -> BeatRepo:
+    if settings.is_mock:
+        raise NotImplementedError("BeatRepo has no mock implementation; use real mode")
+    return SqlBeatRepo(session)
