@@ -20,6 +20,7 @@ from app.repos.provenance_index import (
     ProvenanceIndex,
 )
 from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
+from app.security import PromptSecurityManager
 
 # ── InMemory singletons (shared state for the lifetime of the process) ────────
 _graph_repo = InMemoryGraphRepo()
@@ -28,6 +29,7 @@ _branch_repo = InMemoryBranchRepo()
 _conv_repo = InMemoryConversationRepo()
 _prov_index = InMemoryProvenanceIndex()
 _mock_extractor = MockExtractor()
+_prompt_security_manager = PromptSecurityManager()
 
 
 # ── Dependency provider functions (used with FastAPI Depends()) ───────────────
@@ -67,3 +69,8 @@ def get_extractor() -> Extractor:
     if settings.is_mock:
         return _mock_extractor
     return ClaudeExtractor()
+
+
+def get_prompt_security_manager() -> PromptSecurityManager:
+    """Dependency injection for PromptSecurityManager."""
+    return _prompt_security_manager
