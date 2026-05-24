@@ -14,6 +14,7 @@ from app.repos.branch_repo import BranchRepo, InMemoryBranchRepo, PostgresBranch
 from app.repos.character_repo import CharacterRepo, SqlCharacterRepo
 from app.repos.conversation_repo import ConversationTurnRepo, SqlConversationTurnRepo
 from app.repos.graph_repo import GraphRepo, InMemoryGraphRepo, PostgresGraphRepo
+from app.repos.issue_repo import IssueRepo, SqlIssueRepo
 from app.repos.project_repo import ProjectRepo, SqlProjectRepo
 from app.repos.provenance_index import (
     InMemoryProvenanceIndex,
@@ -79,6 +80,12 @@ def get_conversation_repo(session: AsyncSession = Depends(get_db)) -> Conversati
     if settings.is_mock:
         raise NotImplementedError("ConversationTurnRepo has no mock implementation; use real mode")
     return SqlConversationTurnRepo(session)
+
+
+def get_issue_repo(session: AsyncSession = Depends(get_db)) -> IssueRepo:
+    if settings.is_mock:
+        raise NotImplementedError("IssueRepo has no mock implementation; use real mode")
+    return SqlIssueRepo(session)
 
 
 def get_project_repo(session: AsyncSession = Depends(get_db)) -> ProjectRepo:
