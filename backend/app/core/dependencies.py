@@ -22,6 +22,7 @@ from app.repos.provenance_index import (
     PostgresProvenanceIndex,
     ProvenanceIndex,
 )
+from app.repos.setting_repo import SettingRepo, SqlSettingRepo
 from app.repos.story_repo import InMemoryStoryRepo, PostgresStoryRepo, StoryRepo
 from app.repos.theme_repo import SqlThemeRepo, ThemeRepo
 from app.security import PromptSecurityManager
@@ -98,6 +99,12 @@ def get_project_repo(session: AsyncSession = Depends(get_db)) -> ProjectRepo:
     if settings.is_mock:
         raise NotImplementedError("ProjectRepo has no mock implementation; use real mode")
     return SqlProjectRepo(session)
+
+
+def get_setting_repo(session: AsyncSession = Depends(get_db)) -> SettingRepo:
+    if settings.is_mock:
+        raise NotImplementedError("SettingRepo has no mock implementation; use real mode")
+    return SqlSettingRepo(session)
 
 
 def get_theme_repo(session: AsyncSession = Depends(get_db)) -> ThemeRepo:
