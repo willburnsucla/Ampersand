@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.db import get_db
 from app.repos.beat_repo import BeatRepo, SqlBeatRepo
-from app.repos.branch_repo import BranchRepo, InMemoryBranchRepo, PostgresBranchRepo
+from app.repos.branch_repo import BranchRepo, SqlBranchRepo
 from app.repos.character_repo import CharacterRepo, SqlCharacterRepo
 from app.repos.conversation_repo import ConversationTurnRepo, SqlConversationTurnRepo
 from app.repos.graph_repo import GraphRepo, InMemoryGraphRepo, PostgresGraphRepo
@@ -31,7 +31,6 @@ from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
 # InMemory singletons (shared state for the lifetime of the process)
 _graph_repo = InMemoryGraphRepo()
 _story_repo = InMemoryStoryRepo()
-_branch_repo = InMemoryBranchRepo()
 _prov_index = InMemoryProvenanceIndex()
 _mock_extractor = MockExtractor()
 _prompt_security_manager = PromptSecurityManager()
@@ -51,10 +50,10 @@ def get_story_repo() -> StoryRepo:
     raise NotImplementedError("Real mode not yet wired")
 
 
-def get_branch_repo() -> BranchRepo:
+def get_branch_repo(session: AsyncSession = Depends(get_db)) -> BranchRepo:
     if settings.is_mock:
-        return _branch_repo
-    raise NotImplementedError("Real mode not yet wired")
+        raise NotImplementedError("BranchRepo has no mock implementation; use real mode")
+    return SqlBranchRepo(session)
 
 
 def get_provenance_index() -> ProvenanceIndex:
