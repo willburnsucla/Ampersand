@@ -12,12 +12,9 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.repos.branch_repo import BranchRepo, SqlBranchRepo
 from app.repos.character_repo import CharacterRepo, SqlCharacterRepo
-from app.repos.conversation_repo import (
-    ConversationRepo,
-    InMemoryConversationRepo,
-    PostgresConversationRepo,
-)
+from app.repos.conversation_repo import ConversationTurnRepo, SqlConversationTurnRepo
 from app.repos.graph_repo import GraphRepo, InMemoryGraphRepo, PostgresGraphRepo
+from app.repos.project_repo import ProjectRepo, SqlProjectRepo
 from app.repos.provenance_index import (
     InMemoryProvenanceIndex,
     PostgresProvenanceIndex,
@@ -30,7 +27,6 @@ from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
 # InMemory singletons (shared state for the lifetime of the process)
 _graph_repo = InMemoryGraphRepo()
 _story_repo = InMemoryStoryRepo()
-_conv_repo = InMemoryConversationRepo()
 _prov_index = InMemoryProvenanceIndex()
 _mock_extractor = MockExtractor()
 _prompt_security_manager = PromptSecurityManager()
@@ -56,12 +52,6 @@ def get_branch_repo(session: AsyncSession = Depends(get_db)) -> BranchRepo:
     return SqlBranchRepo(session)
 
 
-def get_conversation_repo() -> ConversationRepo:
-    if settings.is_mock:
-        return _conv_repo
-    raise NotImplementedError("Real mode not yet wired")
-
-
 def get_provenance_index() -> ProvenanceIndex:
     if settings.is_mock:
         return _prov_index
@@ -82,3 +72,15 @@ def get_character_repo(session: AsyncSession = Depends(get_db)) -> CharacterRepo
     if settings.is_mock:
         raise NotImplementedError("CharacterRepo has no mock implementation; use real mode")
     return SqlCharacterRepo(session)
+
+
+def get_conversation_repo(session: AsyncSession = Depends(get_db)) -> ConversationTurnRepo:
+    if settings.is_mock:
+        raise NotImplementedError("ConversationTurnRepo has no mock implementation; use real mode")
+    return SqlConversationTurnRepo(session)
+
+
+def get_project_repo(session: AsyncSession = Depends(get_db)) -> ProjectRepo:
+    if settings.is_mock:
+        raise NotImplementedError("ProjectRepo has no mock implementation; use real mode")
+    return SqlProjectRepo(session)
