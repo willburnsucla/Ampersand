@@ -19,6 +19,9 @@ from app.repos.provenance_index import (
     PostgresProvenanceIndex,
     ProvenanceIndex,
 )
+from app.repos.character_repo import CharacterRepo, SqlCharacterRepo
+
+
 from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
 from app.security import PromptSecurityManager
 
@@ -31,6 +34,9 @@ _prov_index = InMemoryProvenanceIndex()
 _mock_extractor = MockExtractor()
 _prompt_security_manager = PromptSecurityManager()
 
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.db import get_db
 
 # ── Dependency provider functions (used with FastAPI Depends()) ───────────────
 
@@ -74,3 +80,15 @@ def get_extractor() -> Extractor:
 def get_prompt_security_manager() -> PromptSecurityManager:
     """Dependency injection for PromptSecurityManager."""
     return _prompt_security_manager
+
+
+def get_conversation_repo(session: AsyncSession = Depends(get_db)) -> ConversationTurnRepo:
+    if settings.is_mock:
+        raise NotImplementedError("ConversationTurnRepo has no mock implementation; use real mode")
+    return SqlConversationTurnRepo(session)
+
+
+def get_project_repo(session: AsyncSession = Depends(get_db)) -> ProjectRepo:
+    if settings.is_mock:
+        raise NotImplementedError("ProjectRepo has no mock implementation; use real mode")
+    return SqlProjectRepo(session)
