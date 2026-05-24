@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_db
+from app.repos.beat_repo import BeatRepo, SqlBeatRepo
 from app.repos.branch_repo import BranchRepo, InMemoryBranchRepo, PostgresBranchRepo
 from app.repos.character_repo import CharacterRepo, SqlCharacterRepo
 from app.repos.conversation_repo import ConversationTurnRepo, SqlConversationTurnRepo
@@ -68,6 +69,10 @@ def get_extractor() -> Extractor:
 
 def get_prompt_security_manager() -> PromptSecurityManager:
     return _prompt_security_manager
+
+
+def get_beat_repo(session: AsyncSession = Depends(get_db)) -> BeatRepo:
+    return SqlBeatRepo(session)
 
 
 def get_character_repo(session: AsyncSession = Depends(get_db)) -> CharacterRepo:
