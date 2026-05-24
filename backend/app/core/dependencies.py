@@ -3,47 +3,47 @@ Dependency injection wiring.
 
 Reads AMPERSAND_BACKEND_MODE to select InMemory vs Postgres implementations.
 All module-level singletons are instantiated once at import time.
-Route handlers NEVER import repos directly — they use these dependency functions.
+Route handlers NEVER import repos directly, they use these dependency functions.
 """
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
-from app.repos.graph_repo import GraphRepo, InMemoryGraphRepo, PostgresGraphRepo
-from app.repos.story_repo import InMemoryStoryRepo, PostgresStoryRepo, StoryRepo
+from app.core.db import get_db
+from app.repos.beat_repo import BeatRepo, SqlBeatRepo
 from app.repos.branch_repo import BranchRepo, InMemoryBranchRepo, PostgresBranchRepo
+from app.repos.character_repo import CharacterRepo, SqlCharacterRepo
 from app.repos.conversation_repo import (
     ConversationRepo,
     InMemoryConversationRepo,
     PostgresConversationRepo,
 )
+from app.repos.graph_repo import GraphRepo, InMemoryGraphRepo, PostgresGraphRepo
 from app.repos.provenance_index import (
     InMemoryProvenanceIndex,
     PostgresProvenanceIndex,
     ProvenanceIndex,
 )
+from app.repos.story_repo import InMemoryStoryRepo, PostgresStoryRepo, StoryRepo
+from app.security import PromptSecurityManager
 from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
 
-from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.core.db import get_db
-from app.repos.beat_repo import BeatRepo, SqlBeatRepo
-
-
-# ── InMemory singletons (shared state for the lifetime of the process) ────────
+# InMemory singletons (shared state for the lifetime of the process)
 _graph_repo = InMemoryGraphRepo()
 _story_repo = InMemoryStoryRepo()
 _branch_repo = InMemoryBranchRepo()
 _conv_repo = InMemoryConversationRepo()
 _prov_index = InMemoryProvenanceIndex()
 _mock_extractor = MockExtractor()
+_prompt_security_manager = PromptSecurityManager()
 
 
-# ── Dependency provider functions (used with FastAPI Depends()) ───────────────
+# Dependency provider functions (used with FastAPI Depends())
 
 def get_graph_repo() -> GraphRepo:
     if settings.is_mock:
         return _graph_repo
-    # PostgresGraphRepo needs a DB session; injected differently in real mode
-    raise NotImplementedError("Real mode not yet wired — use AMPERSAND_BACKEND_MODE=mock")
+    raise NotImplementedError("Real mode not yet wired, use AMPERSAND_BACKEND_MODE=mock")
 
 
 def get_story_repo() -> StoryRepo:
@@ -75,7 +75,16 @@ def get_extractor() -> Extractor:
         return _mock_extractor
     return ClaudeExtractor()
 
-def get_beat_repo(session: AsyncSession = Depends(get_db)) -> BeatRepo:
+
+def get_prompt_security_manager() -> PromptSecurityManager:
+    return _prompt_security_manager
+
+
+def get_character_repo(session: AsyncSession = Depends(get_db)) -> CharacterRepo:
     if settings.is_mock:
-        raise NotImplementedError("BeatRepo has no mock implementation; use real mode")
+        raise NotImplementedError("CharacterRepo has no mock implementation; use real mode")
+    return SqlCharacterRepo(session)
+
+
+def get_beat_repo(session: AsyncSession = Depends(get_db)) -> BeatRepo:
     return SqlBeatRepo(session)
