@@ -100,16 +100,18 @@ async def test_upsert_overlay_inserts_then_updates(db_session):
 
     # Insert for the first time
     await repo.upsert_overlay(
-        setting_id=s.id, branch_id=branch.id, overlay_properties={"time": "dawn"},
+        setting_id=s.id, branch_id=branch.id, project_id=project.id,
+        overlay_properties={"time": "dawn"},
     )
-    view1 = await repo.get_view(s.id, branch.id)
+    view1 = await repo.get_view(s.id, branch.id, project_id=project.id)
     assert view1.properties == {"time": "dawn"}
 
     # Next insert is an update
     await repo.upsert_overlay(
-        setting_id=s.id, branch_id=branch.id, overlay_properties={"time": "noon"},
+        setting_id=s.id, branch_id=branch.id, project_id=project.id,
+        overlay_properties={"time": "noon"},
     )
-    view2 = await repo.get_view(s.id, branch.id)
+    view2 = await repo.get_view(s.id, branch.id, project_id=project.id)
     assert view2.properties == {"time": "noon"}
 
 # get_view (the merge)
@@ -122,7 +124,7 @@ async def test_get_view_with_no_overlay_returns_base(db_session):
     s = await repo.create(project_id=project.id, name="the pier",
                           base_properties={"time": "night", "weather": "fog"})
 
-    view = await repo.get_view(s.id, branch.id)
+    view = await repo.get_view(s.id, branch.id, project_id=project.id)
     assert view is not None
     assert view.properties == {"time": "night", "weather": "fog"}
     assert view.resolved_in_branch == branch.id
@@ -136,10 +138,11 @@ async def test_get_view_overlay_wins_on_key_conflict(db_session):
     s = await repo.create(project_id=project.id, name="the pier",
                           base_properties={"time": "night", "weather": "fog"})
     await repo.upsert_overlay(
-        setting_id=s.id, branch_id=branch.id, overlay_properties={"time": "dawn"},
+        setting_id=s.id, branch_id=branch.id, project_id=project.id,
+        overlay_properties={"time": "dawn"},
     )
 
-    view = await repo.get_view(s.id, branch.id)
+    view = await repo.get_view(s.id, branch.id, project_id=project.id)
     assert view.properties == {"time": "dawn", "weather": "fog"}
 
 async def test_get_view_nonexistent_setting_returns_none(db_session):
@@ -147,4 +150,33 @@ async def test_get_view_nonexistent_setting_returns_none(db_session):
     branch = await _make_branch(db_session, project.id)
     repo = SqlSettingRepo(db_session)
 
-    assert await repo.get_view(uuid.uuid4(), branch.id) is None
+    assert await repo.get_view(uuid.uuid4(), branch.id, project_id=project.id) is None
+
+
+# Cross-tenant attack, passing victims setting with attackers project_id returns None
+async def test_get_view_with_wrong_project_returns_none(db_session):
+    project_a = await _make_project(db_session)
+    project_b = await _make_project(db_session)
+    branch_a = await _make_branch(db_session, project_a.id)
+    repo = SqlSettingRepo(db_session)
+
+    s = await repo.create(project_id=project_a.id, name="the pier",
+                          base_properties={"time": "night"})
+
+    assert await repo.get_view(s.id, branch_a.id, project_id=project_b.id) is None
+
+
+# Same attack on write side, cross-tenant upsert should raise
+async def test_upsert_overlay_with_wrong_project_raises(db_session):
+    project_a = await _make_project(db_session)
+    project_b = await _make_project(db_session)
+    branch_a = await _make_branch(db_session, project_a.id)
+    repo = SqlSettingRepo(db_session)
+
+    s = await repo.create(project_id=project_a.id, name="the pier")
+
+    with pytest.raises(ValueError):
+        await repo.upsert_overlay(
+            setting_id=s.id, branch_id=branch_a.id,
+            project_id=project_b.id, overlay_properties={"time": "dawn"},
+        )

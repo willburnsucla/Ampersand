@@ -109,16 +109,18 @@ async def test_upsert_overlay_inserts_then_updates(db_session):
 
     # Insert for the first time
     await repo.upsert_overlay(
-        theme_id=theme.id, branch_id=branch.id, overlay_properties={"weight": "light"},
+        theme_id=theme.id, branch_id=branch.id, project_id=project.id,
+        overlay_properties={"weight": "light"},
     )
-    view1 = await repo.get_view(theme.id, branch.id)
+    view1 = await repo.get_view(theme.id, branch.id, project_id=project.id)
     assert view1.properties == {"weight": "light"}
 
     # Next insert is an update
     await repo.upsert_overlay(
-        theme_id=theme.id, branch_id=branch.id, overlay_properties={"weight": "absent"},
+        theme_id=theme.id, branch_id=branch.id, project_id=project.id,
+        overlay_properties={"weight": "absent"},
     )
-    view2 = await repo.get_view(theme.id, branch.id)
+    view2 = await repo.get_view(theme.id, branch.id, project_id=project.id)
     assert view2.properties == {"weight": "absent"}
 
 
@@ -132,7 +134,7 @@ async def test_get_view_with_no_overlay_returns_base(db_session):
     theme = await repo.create(project_id=project.id, name="Justice",
                               base_properties={"weight": "heavy", "tone": "grim"})
 
-    view = await repo.get_view(theme.id, branch.id)
+    view = await repo.get_view(theme.id, branch.id, project_id=project.id)
     assert view is not None
     assert view.properties == {"weight": "heavy", "tone": "grim"}
     assert view.resolved_in_branch == branch.id
@@ -147,10 +149,11 @@ async def test_get_view_overlay_wins_on_key_conflict(db_session):
     theme = await repo.create(project_id=project.id, name="Justice",
                               base_properties={"weight": "heavy", "tone": "grim"})
     await repo.upsert_overlay(
-        theme_id=theme.id, branch_id=branch.id, overlay_properties={"weight": "light"},
+        theme_id=theme.id, branch_id=branch.id, project_id=project.id,
+        overlay_properties={"weight": "light"},
     )
 
-    view = await repo.get_view(theme.id, branch.id)
+    view = await repo.get_view(theme.id, branch.id, project_id=project.id)
     assert view.properties == {"weight": "light", "tone": "grim"}
 
 
@@ -159,4 +162,33 @@ async def test_get_view_nonexistent_theme_returns_none(db_session):
     branch = await _make_branch(db_session, project.id)
     repo = SqlThemeRepo(db_session)
 
-    assert await repo.get_view(uuid.uuid4(), branch.id) is None
+    assert await repo.get_view(uuid.uuid4(), branch.id, project_id=project.id) is None
+
+
+# Cross-tenant attack, passing victims theme with attackers project_id returns None
+async def test_get_view_with_wrong_project_returns_none(db_session):
+    project_a = await _make_project(db_session)
+    project_b = await _make_project(db_session)
+    branch_a = await _make_branch(db_session, project_a.id)
+    repo = SqlThemeRepo(db_session)
+
+    theme = await repo.create(project_id=project_a.id, name="Justice",
+                              base_properties={"weight": "heavy"})
+
+    assert await repo.get_view(theme.id, branch_a.id, project_id=project_b.id) is None
+
+
+# Same attack on write side, cross-tenant upsert should raise
+async def test_upsert_overlay_with_wrong_project_raises(db_session):
+    project_a = await _make_project(db_session)
+    project_b = await _make_project(db_session)
+    branch_a = await _make_branch(db_session, project_a.id)
+    repo = SqlThemeRepo(db_session)
+
+    theme = await repo.create(project_id=project_a.id, name="Justice")
+
+    with pytest.raises(ValueError):
+        await repo.upsert_overlay(
+            theme_id=theme.id, branch_id=branch_a.id,
+            project_id=project_b.id, overlay_properties={"weight": "light"},
+        )

@@ -109,16 +109,18 @@ async def test_upsert_overlay_inserts_then_updates(db_session):
 
     # Insert for the first time
     await repo.upsert_overlay(
-        character_id=sarah.id, branch_id=branch.id, overlay_properties={"age": 45},
+        character_id=sarah.id, branch_id=branch.id, project_id=project.id,
+        overlay_properties={"age": 45},
     )
-    view1 = await repo.get_view(sarah.id, branch.id)
+    view1 = await repo.get_view(sarah.id, branch.id, project_id=project.id)
     assert view1.properties == {"age": 45}
 
     # Next insert is an update
     await repo.upsert_overlay(
-        character_id=sarah.id, branch_id=branch.id, overlay_properties={"age": 50},
+        character_id=sarah.id, branch_id=branch.id, project_id=project.id,
+        overlay_properties={"age": 50},
     )
-    view2 = await repo.get_view(sarah.id, branch.id)
+    view2 = await repo.get_view(sarah.id, branch.id, project_id=project.id)
     assert view2.properties == {"age": 50}
 
 
@@ -132,7 +134,7 @@ async def test_get_view_with_no_overlay_returns_base(db_session):
     sarah = await repo.create(project_id=project.id, name="Sarah",
                               base_properties={"job": "detective", "age": 30})
 
-    view = await repo.get_view(sarah.id, branch.id)
+    view = await repo.get_view(sarah.id, branch.id, project_id=project.id)
     assert view is not None
     assert view.properties == {"job": "detective", "age": 30}
     assert view.resolved_in_branch == branch.id
@@ -146,11 +148,11 @@ async def test_get_view_overlay_wins_on_key_conflict(db_session):
     sarah = await repo.create(project_id=project.id, name="Sarah",
                               base_properties={"job": "detective", "age": 30})
     await repo.upsert_overlay(
-        character_id=sarah.id, branch_id=branch.id,
-        overlay_properties={"age": 45},  
+        character_id=sarah.id, branch_id=branch.id, project_id=project.id,
+        overlay_properties={"age": 45},
     )
 
-    view = await repo.get_view(sarah.id, branch.id)
+    view = await repo.get_view(sarah.id, branch.id, project_id=project.id)
     assert view.properties == {"job": "detective", "age": 45}   
 
 
@@ -159,4 +161,33 @@ async def test_get_view_nonexistent_character_returns_none(db_session):
     branch = await _make_branch(db_session, project.id)
     repo = SqlCharacterRepo(db_session)
 
-    assert await repo.get_view(uuid.uuid4(), branch.id) is None
+    assert await repo.get_view(uuid.uuid4(), branch.id, project_id=project.id) is None
+
+
+# Cross-tenant attack, passing victim's character with attackers project_id returns None
+async def test_get_view_with_wrong_project_returns_none(db_session):
+    project_a = await _make_project(db_session)
+    project_b = await _make_project(db_session)
+    branch_a = await _make_branch(db_session, project_a.id)
+    repo = SqlCharacterRepo(db_session)
+
+    sarah = await repo.create(project_id=project_a.id, name="Sarah",
+                              base_properties={"job": "detective"})
+
+    assert await repo.get_view(sarah.id, branch_a.id, project_id=project_b.id) is None
+
+
+# Same attack on the write side, cross-tenant upsert should raise
+async def test_upsert_overlay_with_wrong_project_raises(db_session):
+    project_a = await _make_project(db_session)
+    project_b = await _make_project(db_session)
+    branch_a = await _make_branch(db_session, project_a.id)
+    repo = SqlCharacterRepo(db_session)
+
+    sarah = await repo.create(project_id=project_a.id, name="Sarah")
+
+    with pytest.raises(ValueError):
+        await repo.upsert_overlay(
+            character_id=sarah.id, branch_id=branch_a.id,
+            project_id=project_b.id, overlay_properties={"age": 99},
+        )

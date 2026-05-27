@@ -1,11 +1,4 @@
-"""
-InjectionDetector — Pattern-based detection for prompt injection and jailbreak attempts.
-
-Methods:
-  - detect_injection_attempt(text: str) -> tuple[bool, float, list[str]]: Check for suspicion
-  - score_suspicion(text: str) -> tuple[float, list[str]]: Return score + matched patterns
-  - extract_keywords(text: str) -> list[str]: Find matched keywords in text
-"""
+"""Pattern-based detection for prompt injection and jailbreak attempts."""
 from __future__ import annotations
 
 import logging

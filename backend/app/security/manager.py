@@ -1,14 +1,6 @@
-"""
-PromptSecurityManager — Main orchestrator for prompt security.
+"""Main orchestrator for prompt security, delegates to sanitizer, validator, and detector.
 
-Delegates to:
-  - PromptSanitizer: Text cleaning
-  - ContextValidator: Structure/boundary validation
-  - InjectionDetector: Pattern-based detection
-
-Public method:
-  - process_context(ctx: LlmContext, story_id: UUID, branch_id: UUID) -> LlmContext
-    Sanitizes and validates LlmContext, raises SecurityException on failure.
+process_context sanitizes and validates LlmContext, raises SecurityException on failure.
 """
 from __future__ import annotations
 

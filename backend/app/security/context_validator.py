@@ -1,13 +1,4 @@
-"""
-ContextValidator — LlmContext structure validation and boundary enforcement.
-
-Methods:
-  - validate_llm_context(ctx: LlmContext) -> tuple[bool, str]: Full validation
-  - validate_structure(ctx: LlmContext) -> tuple[bool, str]: Pydantic-style checks
-  - validate_boundaries(ctx: LlmContext) -> tuple[bool, str]: Size/count limits
-  - validate_branch_consistency(ctx: LlmContext, expected_branch_id: UUID) -> tuple[bool, str]
-  - redact_context(ctx: LlmContext) -> LlmContext: Remove sensitive metadata
-"""
+"""LlmContext structure validation and boundary enforcement."""
 from __future__ import annotations
 
 import logging

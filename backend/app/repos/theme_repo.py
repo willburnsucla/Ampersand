@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models_v2 import Theme, ThemeView
-from app.domain.orm_v2 import ThemeOrm, ThemeBranchOverlayOrm
+from app.domain.orm_v2 import BranchOrm, ThemeBranchOverlayOrm, ThemeOrm
 
 
 # DB -> APP helper
@@ -71,11 +71,13 @@ class ThemeRepo(ABC):
     @abstractmethod
     # If writer wants to branch on a Theme on alternate timeline
     async def upsert_overlay(
-        self, *, theme_id: UUID, branch_id: UUID, overlay_properties: dict
+        self, *, theme_id: UUID, branch_id: UUID, project_id: UUID, overlay_properties: dict
     ) -> None: ...
 
     @abstractmethod
-    async def get_view(self, theme_id: UUID, branch_id: UUID) -> ThemeView | None: ...
+    async def get_view(
+        self, theme_id: UUID, branch_id: UUID, *, project_id: UUID
+    ) -> ThemeView | None: ...
 
 class SqlThemeRepo(ThemeRepo):
     def __init__(self, session: AsyncSession) -> None:
@@ -131,9 +133,23 @@ class SqlThemeRepo(ThemeRepo):
         return _to_theme(row)
 
     async def upsert_overlay(
-        self, *, theme_id: UUID, branch_id: UUID, overlay_properties: dict
+        self, *, theme_id: UUID, branch_id: UUID, project_id: UUID, overlay_properties: dict
     ) -> None:
-        # Does an overlay already exist for this Theme/branch pair?
+        # tenant check, theme and branch must both live in this project
+        theme_stmt = select(ThemeOrm.id).where(
+            ThemeOrm.id == theme_id,
+            ThemeOrm.project_id == project_id,
+        )
+        if (await self._session.execute(theme_stmt)).scalar_one_or_none() is None:
+            raise ValueError(f"Theme {theme_id} not found in this project")
+
+        branch_stmt = select(BranchOrm.id).where(
+            BranchOrm.id == branch_id,
+            BranchOrm.project_id == project_id,
+        )
+        if (await self._session.execute(branch_stmt)).scalar_one_or_none() is None:
+            raise ValueError(f"branch {branch_id} not found in this project")
+
         stmt = select(ThemeBranchOverlayOrm).where(
             ThemeBranchOverlayOrm.theme_id == theme_id,
             ThemeBranchOverlayOrm.branch_id == branch_id,
@@ -141,7 +157,6 @@ class SqlThemeRepo(ThemeRepo):
         existing = (await self._session.execute(stmt)).scalar_one_or_none()
 
         if existing is None:
-            # Insert new overlay row
             row = ThemeBranchOverlayOrm(
                 theme_id=theme_id,
                 branch_id=branch_id,
@@ -149,24 +164,30 @@ class SqlThemeRepo(ThemeRepo):
             )
             self._session.add(row)
         else:
-            # Update existing overlay
             existing.overlay_properties = overlay_properties
 
         await self._session.flush()
 
-    async def get_view(self, theme_id: UUID, branch_id: UUID) -> ThemeView | None:
-        # 1. fetch the base Theme
-        base_stmt = select(ThemeOrm).where(ThemeOrm.id == theme_id)
+    async def get_view(
+        self, theme_id: UUID, branch_id: UUID, *, project_id: UUID
+    ) -> ThemeView | None:
+        base_stmt = select(ThemeOrm).where(
+            ThemeOrm.id == theme_id,
+            ThemeOrm.project_id == project_id,
+        )
         base = (await self._session.execute(base_stmt)).scalar_one_or_none()
         if base is None:
             return None
 
-        # 2. fetch the overlay (may not exist — that's fine)
-        overlay_stmt = select(ThemeBranchOverlayOrm).where(
-            ThemeBranchOverlayOrm.theme_id == theme_id,
-            ThemeBranchOverlayOrm.branch_id == branch_id,
+        overlay_stmt = (
+            select(ThemeBranchOverlayOrm)
+            .join(BranchOrm, ThemeBranchOverlayOrm.branch_id == BranchOrm.id)
+            .where(
+                ThemeBranchOverlayOrm.theme_id == theme_id,
+                ThemeBranchOverlayOrm.branch_id == branch_id,
+                BranchOrm.project_id == project_id,
+            )
         )
         overlay = (await self._session.execute(overlay_stmt)).scalar_one_or_none()
 
-        # 3. merge and return
         return _merge_view(base, overlay, branch_id)
