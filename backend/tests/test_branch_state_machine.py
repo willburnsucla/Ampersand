@@ -51,7 +51,7 @@ def test_disallowed_transitions_raise(from_state, event):
 
 
 def test_committed_is_terminal():
-    """COMMIT from Committed must raise — it's a terminal state."""
+    """COMMIT from Committed must raise, it's a terminal state."""
     with pytest.raises(InvalidTransitionError, match="terminal"):
         BranchStateMachine.next_state("committed", BranchEvent.COMMIT)
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.branch_state_machine import BranchEvent, BranchStateMachine
@@ -48,7 +48,18 @@ class BranchRepo(ABC):
 
     @abstractmethod
     async def transition(self, branch_id: UUID, event: BranchEvent, *, project_id: UUID) -> Branch: ...
-    
+
+    @abstractmethod
+    async def create_fork(
+        self,
+        *,
+        project_id: UUID,
+        parent_branch_id: UUID,
+        created_from_beat_id: UUID,
+        name: str | None = None,
+        declared_arc: str | None = None,
+    ) -> Branch: ...
+
 class SqlBranchRepo(BranchRepo):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -102,6 +113,48 @@ class SqlBranchRepo(BranchRepo):
         # next_state raises InvalidTransitionError if illegal let it propagate
         # note transition doesn't validate the transition itself, but rather delegates that to BranchStateMachine
         row.state = BranchStateMachine.next_state(row.state, event)
+        await self._session.flush()
+        await self._session.refresh(row)
+        return _to_branch(row)
+
+    async def create_fork(
+        self,
+        *,
+        project_id: UUID,
+        parent_branch_id: UUID,
+        created_from_beat_id: UUID,
+        name: str | None = None,
+        declared_arc: str | None = None,
+    ) -> Branch:
+        # tenancy check, parent must live in this project
+        parent_stmt = select(BranchOrm.id).where(
+            BranchOrm.id == parent_branch_id,
+            BranchOrm.project_id == project_id,
+        )
+        if (await self._session.execute(parent_stmt)).scalar_one_or_none() is None:
+            raise ValueError(f"parent branch {parent_branch_id} not found in this project")
+
+        # fork cap, at most 3 alternates per fork beat per project. not atomic, a
+        # concurrent insert could slip a 4th in before this one commits. accepted
+        # for MVP, same trade as the beat sequence index race.
+        count_stmt = select(func.count()).select_from(BranchOrm).where(
+            BranchOrm.created_from_beat_id == created_from_beat_id,
+            BranchOrm.project_id == project_id,
+        )
+        existing = (await self._session.execute(count_stmt)).scalar_one()
+        if existing >= 3:
+            raise ValueError(
+                f"beat {created_from_beat_id} already has {existing} forks, cap is 3"
+            )
+
+        row = BranchOrm(
+            project_id=project_id,
+            name=name,
+            parent_branch_id=parent_branch_id,
+            created_from_beat_id=created_from_beat_id,
+            declared_arc=declared_arc,
+        )
+        self._session.add(row)
         await self._session.flush()
         await self._session.refresh(row)
         return _to_branch(row)
