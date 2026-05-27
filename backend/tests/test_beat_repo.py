@@ -2,6 +2,7 @@
 import uuid
 
 import pytest
+import sqlalchemy.exc
 
 from app.domain.orm_v2 import BranchOrm, ProjectOrm
 from app.repos.beat_repo import SqlBeatRepo
@@ -124,3 +125,15 @@ async def test_set_status_on_missing_beat_raises(db_session):
 
     with pytest.raises(ValueError):
         await repo.set_status(uuid.uuid4(), "committed", branch_id=branch.id)
+
+
+# two beats cant share a position in the same branch, the unique constraint blocks it.
+# this is the schema half of the documented append race, the second concurrent append
+# would surface this error and the caller has to retry.
+async def test_create_duplicate_sequence_index_raises(db_session):
+    branch = await _make_branch(db_session)
+    repo = SqlBeatRepo(db_session)
+
+    await repo.create(branch_id=branch.id, sequence_index_in_branch=1, logline="first")
+    with pytest.raises(sqlalchemy.exc.IntegrityError):
+        await repo.create(branch_id=branch.id, sequence_index_in_branch=1, logline="dup")

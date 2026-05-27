@@ -2,6 +2,13 @@
 
 Only this module touches BeatOrm. It returns Pydantic Beats, never ORM
 objects, so the persistence layer stays hidden from everything downstream.
+
+sequence_index_in_branch is caller supplied. the schema enforces a unique
+constraint on (branch_id, sequence_index_in_branch), so two concurrent appends
+that both read max+1 will collide and the loser surfaces as IntegrityError.
+for MVP that bubbles to the caller, retry is the callers job. an atomic
+upsert or a SELECT FOR UPDATE on the branch would make this race free, deferred
+until we see real contention in practice.
 """
 from __future__ import annotations
 
@@ -19,14 +26,14 @@ from app.domain.orm_v2 import BeatOrm
 def _to_beat(row: BeatOrm) -> Beat:
     return Beat(
         id=row.id,
-        branch_id=row.branch_id,                            # which timeline
-        sequence_index_in_branch=row.sequence_index_in_branch,  # position in the story
-        logline=row.logline,                                # "Sarah finds a body"
-        content=row.content,                                # the JSONB detail:  {"scene": "pier", "mood": "tense"}  
+        branch_id=row.branch_id,
+        sequence_index_in_branch=row.sequence_index_in_branch,
+        logline=row.logline,
+        content=row.content,
         turning_point=row.turning_point,
         valence=row.valence,
         arousal=row.arousal,
-        status=row.status,                                  # proposed / committed / rejected
+        status=row.status,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
