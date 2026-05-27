@@ -4,7 +4,7 @@ import uuid
 import pytest
 
 from app.domain.branch_state_machine import BranchEvent, InvalidTransitionError
-from app.domain.orm_v2 import ProjectOrm
+from app.domain.orm_v2 import BeatOrm, ProjectOrm
 from app.repos.branch_repo import SqlBranchRepo
 
 
@@ -13,6 +13,17 @@ async def _make_project(db_session, *, owner_id: str = "user-1") -> ProjectOrm:
     db_session.add(project)
     await db_session.flush()
     return project
+
+
+async def _make_beat(db_session, branch_id, sequence_index: int = 0) -> BeatOrm:
+    beat = BeatOrm(
+        branch_id=branch_id,
+        sequence_index_in_branch=sequence_index,
+        logline="test beat",
+    )
+    db_session.add(beat)
+    await db_session.flush()
+    return beat
 
 
 async def test_create_then_get_returns_it(db_session):
@@ -94,3 +105,72 @@ async def test_transition_on_missing_branch_raises(db_session):
 
     with pytest.raises(ValueError):
         await repo.transition(uuid.uuid4(), BranchEvent.COMMIT, project_id=project.id)
+
+
+# fork cap, 3 alternates from same beat succeed, 4th raises
+async def test_create_fork_caps_at_three_per_beat(db_session):
+    project = await _make_project(db_session)
+    repo = SqlBranchRepo(db_session)
+
+    parent = await repo.create(project_id=project.id, name="main")
+    fork_beat = await _make_beat(db_session, parent.id)
+
+    for i in range(3):
+        await repo.create_fork(
+            project_id=project.id,
+            parent_branch_id=parent.id,
+            created_from_beat_id=fork_beat.id,
+            name=f"alt-{i}",
+        )
+
+    with pytest.raises(ValueError, match="cap is 3"):
+        await repo.create_fork(
+            project_id=project.id,
+            parent_branch_id=parent.id,
+            created_from_beat_id=fork_beat.id,
+            name="alt-4",
+        )
+
+
+# the cap is per fork beat, so different beats each get their own quota
+async def test_create_fork_cap_is_per_beat(db_session):
+    project = await _make_project(db_session)
+    repo = SqlBranchRepo(db_session)
+
+    parent = await repo.create(project_id=project.id, name="main")
+    beat_a = await _make_beat(db_session, parent.id, sequence_index=0)
+    beat_b = await _make_beat(db_session, parent.id, sequence_index=1)
+
+    for i in range(3):
+        await repo.create_fork(
+            project_id=project.id,
+            parent_branch_id=parent.id,
+            created_from_beat_id=beat_a.id,
+            name=f"a-{i}",
+        )
+
+    fork_b = await repo.create_fork(
+        project_id=project.id,
+        parent_branch_id=parent.id,
+        created_from_beat_id=beat_b.id,
+        name="b-0",
+    )
+    assert fork_b.created_from_beat_id == beat_b.id
+
+
+# cross tenant attack, parent from project A but caller passes project_id B
+async def test_create_fork_cross_tenant_raises(db_session):
+    project_a = await _make_project(db_session)
+    project_b = await _make_project(db_session)
+    repo = SqlBranchRepo(db_session)
+
+    parent = await repo.create(project_id=project_a.id, name="main")
+    fork_beat = await _make_beat(db_session, parent.id)
+
+    with pytest.raises(ValueError):
+        await repo.create_fork(
+            project_id=project_b.id,
+            parent_branch_id=parent.id,
+            created_from_beat_id=fork_beat.id,
+            name="sneaky",
+        )

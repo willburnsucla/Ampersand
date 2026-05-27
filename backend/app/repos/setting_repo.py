@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models_v2 import Setting, SettingView
-from app.domain.orm_v2 import SettingOrm, SettingBranchOverlayOrm
+from app.domain.orm_v2 import BranchOrm, SettingBranchOverlayOrm, SettingOrm
 
 
 # DB -> APP helper
@@ -69,11 +69,13 @@ class SettingRepo(ABC):
 
     @abstractmethod
     async def upsert_overlay(
-        self, *, setting_id: UUID, branch_id: UUID, overlay_properties: dict
+        self, *, setting_id: UUID, branch_id: UUID, project_id: UUID, overlay_properties: dict
     ) -> None: ...
 
     @abstractmethod
-    async def get_view(self, setting_id: UUID, branch_id: UUID) -> SettingView | None: ...
+    async def get_view(
+        self, setting_id: UUID, branch_id: UUID, *, project_id: UUID
+    ) -> SettingView | None: ...
 
 
 class SqlSettingRepo(SettingRepo):
@@ -130,8 +132,23 @@ class SqlSettingRepo(SettingRepo):
         return _to_setting(row)
 
     async def upsert_overlay(
-        self, *, setting_id: UUID, branch_id: UUID, overlay_properties: dict
+        self, *, setting_id: UUID, branch_id: UUID, project_id: UUID, overlay_properties: dict
     ) -> None:
+        # tenant check, setting and branch must both live in this project
+        setting_stmt = select(SettingOrm.id).where(
+            SettingOrm.id == setting_id,
+            SettingOrm.project_id == project_id,
+        )
+        if (await self._session.execute(setting_stmt)).scalar_one_or_none() is None:
+            raise ValueError(f"setting {setting_id} not found in this project")
+
+        branch_stmt = select(BranchOrm.id).where(
+            BranchOrm.id == branch_id,
+            BranchOrm.project_id == project_id,
+        )
+        if (await self._session.execute(branch_stmt)).scalar_one_or_none() is None:
+            raise ValueError(f"branch {branch_id} not found in this project")
+
         stmt = select(SettingBranchOverlayOrm).where(
             SettingBranchOverlayOrm.setting_id == setting_id,
             SettingBranchOverlayOrm.branch_id == branch_id,
@@ -150,15 +167,25 @@ class SqlSettingRepo(SettingRepo):
 
         await self._session.flush()
 
-    async def get_view(self, setting_id: UUID, branch_id: UUID) -> SettingView | None:
-        base_stmt = select(SettingOrm).where(SettingOrm.id == setting_id)
+    async def get_view(
+        self, setting_id: UUID, branch_id: UUID, *, project_id: UUID
+    ) -> SettingView | None:
+        base_stmt = select(SettingOrm).where(
+            SettingOrm.id == setting_id,
+            SettingOrm.project_id == project_id,
+        )
         base = (await self._session.execute(base_stmt)).scalar_one_or_none()
         if base is None:
             return None
 
-        overlay_stmt = select(SettingBranchOverlayOrm).where(
-            SettingBranchOverlayOrm.setting_id == setting_id,
-            SettingBranchOverlayOrm.branch_id == branch_id,
+        overlay_stmt = (
+            select(SettingBranchOverlayOrm)
+            .join(BranchOrm, SettingBranchOverlayOrm.branch_id == BranchOrm.id)
+            .where(
+                SettingBranchOverlayOrm.setting_id == setting_id,
+                SettingBranchOverlayOrm.branch_id == branch_id,
+                BranchOrm.project_id == project_id,
+            )
         )
         overlay = (await self._session.execute(overlay_stmt)).scalar_one_or_none()
 

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models_v2 import Character, CharacterView
-from app.domain.orm_v2 import CharacterOrm, CharacterBranchOverlayOrm
+from app.domain.orm_v2 import BranchOrm, CharacterBranchOverlayOrm, CharacterOrm
 
 
 # DB -> APP helper
@@ -71,11 +71,13 @@ class CharacterRepo(ABC):
     @abstractmethod
     # If writer wants to branch on a character on alternate timeline
     async def upsert_overlay(
-        self, *, character_id: UUID, branch_id: UUID, overlay_properties: dict
+        self, *, character_id: UUID, branch_id: UUID, project_id: UUID, overlay_properties: dict
     ) -> None: ...
 
     @abstractmethod
-    async def get_view(self, character_id: UUID, branch_id: UUID) -> CharacterView | None: ...
+    async def get_view(
+        self, character_id: UUID, branch_id: UUID, *, project_id: UUID
+    ) -> CharacterView | None: ...
 
 class SqlCharacterRepo(CharacterRepo):
     def __init__(self, session: AsyncSession) -> None:
@@ -131,9 +133,23 @@ class SqlCharacterRepo(CharacterRepo):
         return _to_character(row)
 
     async def upsert_overlay(
-        self, *, character_id: UUID, branch_id: UUID, overlay_properties: dict
+        self, *, character_id: UUID, branch_id: UUID, project_id: UUID, overlay_properties: dict
     ) -> None:
-        # Does an overlay already exist for this character/branch pair?
+        # tenant check, character and branch must both live in this project
+        char_stmt = select(CharacterOrm.id).where(
+            CharacterOrm.id == character_id,
+            CharacterOrm.project_id == project_id,
+        )
+        if (await self._session.execute(char_stmt)).scalar_one_or_none() is None:
+            raise ValueError(f"character {character_id} not found in this project")
+
+        branch_stmt = select(BranchOrm.id).where(
+            BranchOrm.id == branch_id,
+            BranchOrm.project_id == project_id,
+        )
+        if (await self._session.execute(branch_stmt)).scalar_one_or_none() is None:
+            raise ValueError(f"branch {branch_id} not found in this project")
+
         stmt = select(CharacterBranchOverlayOrm).where(
             CharacterBranchOverlayOrm.character_id == character_id,
             CharacterBranchOverlayOrm.branch_id == branch_id,
@@ -141,7 +157,6 @@ class SqlCharacterRepo(CharacterRepo):
         existing = (await self._session.execute(stmt)).scalar_one_or_none()
 
         if existing is None:
-            # Insert new overlay row
             row = CharacterBranchOverlayOrm(
                 character_id=character_id,
                 branch_id=branch_id,
@@ -149,24 +164,30 @@ class SqlCharacterRepo(CharacterRepo):
             )
             self._session.add(row)
         else:
-            # Update existing overlay
             existing.overlay_properties = overlay_properties
 
         await self._session.flush()
 
-    async def get_view(self, character_id: UUID, branch_id: UUID) -> CharacterView | None:
-        # 1. fetch the base character
-        base_stmt = select(CharacterOrm).where(CharacterOrm.id == character_id)
+    async def get_view(
+        self, character_id: UUID, branch_id: UUID, *, project_id: UUID
+    ) -> CharacterView | None:
+        base_stmt = select(CharacterOrm).where(
+            CharacterOrm.id == character_id,
+            CharacterOrm.project_id == project_id,
+        )
         base = (await self._session.execute(base_stmt)).scalar_one_or_none()
         if base is None:
             return None
 
-        # 2. fetch the overlay (may not exist — that's fine)
-        overlay_stmt = select(CharacterBranchOverlayOrm).where(
-            CharacterBranchOverlayOrm.character_id == character_id,
-            CharacterBranchOverlayOrm.branch_id == branch_id,
+        overlay_stmt = (
+            select(CharacterBranchOverlayOrm)
+            .join(BranchOrm, CharacterBranchOverlayOrm.branch_id == BranchOrm.id)
+            .where(
+                CharacterBranchOverlayOrm.character_id == character_id,
+                CharacterBranchOverlayOrm.branch_id == branch_id,
+                BranchOrm.project_id == project_id,
+            )
         )
         overlay = (await self._session.execute(overlay_stmt)).scalar_one_or_none()
 
-        # 3. merge and return
         return _merge_view(base, overlay, branch_id)
