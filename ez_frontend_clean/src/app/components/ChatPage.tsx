@@ -259,35 +259,3 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
     </div>
   );
 }
-
-/**
- * TODO once backend has endpoints:
-Lines	What it is	Likely API / server role later
-12–18
-examplePrompts — static strings for starter chips
-Config or GET /prompts / part of chat session bootstrap
-21–28
-Initial messages — one hardcoded assistant welcome
-GET /chats/:id/messages or empty + load history
-32–60
-handleSend — appends user message locally, setTimeout fake assistant reply
-POST /chats/:id/messages or streaming completion; replace timeout with fetch / SSE / WebSocket
-30, 55–56
-hasEnoughData toggled when messages.length >= 6
-Driven by real analytics readiness from API or job status
-63–75
-mockPaceData, mockCharacterData
-GET /insights/pace, GET /insights/character, or embedded in chat poll response
-198, 217
-Charts use those mock arrays
-Same as above — bind chart data to response
-233–244
-Session stats: messages.length is real local state; 3 and 7 are hardcoded
-GET /session/stats or derive from conversation analysis
-205–207, 224–226, 251–253
-Insight blurbs under charts / “Latest Insight”
-Model-generated copy from API
-179–187
-“No data yet” empty state (copy only)
-Still UI; optional GET to know if insights exist
- */

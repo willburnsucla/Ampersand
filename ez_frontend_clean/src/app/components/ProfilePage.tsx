@@ -109,16 +109,3 @@ export function ProfilePage({ onNavigateBack, onNavigateStory }: { onNavigateBac
     </div>
   );
 }
-
-/**
- * TODO once backend has endpoints:
- * 11–40
-mockChats — fake past conversations
-GET /chats or GET /users/me/conversations
-89–105
-Renders mockChats; onNavigateStory ignores which chat was clicked
-Pass chat.id into route/state and load that story
-67, 74, 81
-Stats 127, 48, 12
-GET /users/me/stats or aggregates from backend
- */

@@ -181,28 +181,3 @@ export function StoryPage({ onNavigateBack }: { onNavigateBack: () => void }) {
     </div>
   );
 }
-
-/**
- * TODO (once backend has endpoints:)
- * 4–25
-paceData, characterData, themeData
-GET /stories/:id/analytics (or separate endpoints per chart)
-42
-Title “The Midnight Garden” hardcoded
-GET /stories/:id → title
-51–53
-Long overview paragraph
-GET /stories/:id → summary / synopsis
-55–81
-Meta: Setting, Characters count, Timeline, Genre
-Story metadata fields from API
-92–106, 117–122, 134–146
-Charts bound to the arrays above
-Same analytics payload
-108–110, 124–126, 148–150
-Paragraphs under charts
-AI narrative from API
-156–178
-“AI Insights & Suggestions” feed — three static blocks with timestamps
-GET /stories/:id/insights or activity stream
- */
