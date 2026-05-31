@@ -72,3 +72,23 @@ class SqlConversationTurnRepo(ConversationTurnRepo):
         stmt = select(ConversationTurnOrm).where(ConversationTurnOrm.id == turn_id)
         row = (await self._session.execute(stmt)).scalar_one_or_none()
         return _to_turn(row) if row is not None else None
+
+
+class InMemoryConversationRepo:
+    """Mock implementation for dev-mock mode — no DB needed."""
+
+    def __init__(self) -> None:
+        self._turns: list[ConversationTurn] = []
+
+    async def append_turn(self, turn) -> None:  # type: ignore[override]
+        self._turns.append(turn)
+
+    async def list_turns(self, branch_id: UUID, *, limit: int = 50, before=None):
+        return [t for t in self._turns if t.branch_id == branch_id][-limit:]
+
+    async def get_turn(self, turn_id: UUID):
+        return next((t for t in self._turns if t.id == turn_id), None)
+
+
+# Alias that router.py expects
+ConversationRepo = InMemoryConversationRepo

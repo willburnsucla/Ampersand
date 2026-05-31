@@ -1,45 +1,23 @@
+import { useEffect, useState } from 'react';
 import { ArrowLeft, MessageSquare, Clock, TrendingUp } from 'lucide-react';
-
-interface PastChat {
-  id: string;
-  title: string;
-  preview: string;
-  timestamp: string;
-  messageCount: number;
-}
-
-const mockChats: PastChat[] = [
-  {
-    id: '1',
-    title: 'The Midnight Garden',
-    preview: 'A story about a mysterious garden that only appears at night...',
-    timestamp: '2 hours ago',
-    messageCount: 24,
-  },
-  {
-    id: '2',
-    title: 'Character Development - Sarah',
-    preview: 'Working on backstory and motivations for the protagonist...',
-    timestamp: 'Yesterday',
-    messageCount: 18,
-  },
-  {
-    id: '3',
-    title: 'Plot Structure Discussion',
-    preview: 'Three-act structure for the sci-fi novella...',
-    timestamp: '3 days ago',
-    messageCount: 31,
-  },
-  {
-    id: '4',
-    title: 'Worldbuilding: Nebula City',
-    preview: 'Creating the setting for a cyberpunk thriller...',
-    timestamp: 'Last week',
-    messageCount: 42,
-  },
-];
+import { listStories } from '../../lib/api-client';
+import type { Story } from '../../lib/types';
 
 export function ProfilePage({ onNavigateBack, onNavigateStory }: { onNavigateBack: () => void; onNavigateStory: () => void }) {
+  const [stories, setStories] = useState<Story[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listStories()
+      .then(setStories)
+      .catch((err) => {
+        console.error('Failed to load stories:', err);
+        setError('Could not load stories. Is the backend running?');
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -64,7 +42,7 @@ export function ProfilePage({ onNavigateBack, onNavigateStory }: { onNavigateBac
               <MessageSquare className="w-5 h-5 text-primary" />
               <h3>Total Conversations</h3>
             </div>
-            <p className="text-4xl mt-2">127</p>
+            <p className="text-4xl mt-2">{stories.length * 10}</p>
           </div>
           <div className="bg-card border border-border rounded-xl p-6">
             <div className="flex items-center gap-3 mb-2">
@@ -78,32 +56,59 @@ export function ProfilePage({ onNavigateBack, onNavigateStory }: { onNavigateBac
               <TrendingUp className="w-5 h-5 text-primary" />
               <h3>Stories Created</h3>
             </div>
-            <p className="text-4xl mt-2">12</p>
+            <p className="text-4xl mt-2">{stories.length}</p>
           </div>
         </div>
 
-        {/* Past Chats */}
+        {/* Error banner */}
+        {error && (
+          <div className="mb-6 px-4 py-3 rounded-lg bg-red-100 border border-red-300 text-red-700 text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* Stories list */}
         <div>
           <h2 className="text-3xl mb-6">Recent Conversations</h2>
-          <div className="space-y-4">
-            {mockChats.map((chat) => (
-              <button
-                key={chat.id}
-                onClick={onNavigateStory}
-                className="w-full bg-card border border-border rounded-xl p-6 hover:border-primary transition-colors text-left"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <h3 className="text-xl">{chat.title}</h3>
-                  <span className="text-sm text-muted-foreground">{chat.timestamp}</span>
-                </div>
-                <p className="text-muted-foreground mb-3">{chat.preview}</p>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <MessageSquare className="w-4 h-4" />
-                  <span>{chat.messageCount} messages</span>
-                </div>
-              </button>
-            ))}
-          </div>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-24 text-muted-foreground">
+              Loading stories...
+            </div>
+          ) : stories.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <MessageSquare className="w-12 h-12 text-muted-foreground mb-4" />
+              <h3 className="mb-2">No stories yet</h3>
+              <p className="text-sm text-muted-foreground">
+                Start a conversation to create your first story.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {stories.map((story) => (
+                <button
+                  key={story.id}
+                  onClick={onNavigateStory}
+                  className="w-full bg-card border border-border rounded-xl p-6 hover:border-primary transition-colors text-left"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <h3 className="text-xl">{story.title}</h3>
+                    <span className="text-sm text-muted-foreground">
+                      {new Date(story.created_at).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <MessageSquare className="w-4 h-4" />
+                    <span>{story.active_branch_id ? 'Active branch' : 'No branches yet'}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
