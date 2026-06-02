@@ -5,18 +5,24 @@ in-memory fake repo rather than testcontainers, which keeps it fast and isolated
 """
 import uuid
 
+import pytest
+from pydantic import ValidationError
+
 from app.domain.models_v2 import Beat
 from app.services.consistency_checker import HeuristicConsistencyChecker
 
 BRANCH = uuid.uuid4()
 
 
-def _beat(seq: int, *, valence: float | None = None, tp: str | None = None) -> Beat:
+def _beat(
+    seq: int, *, valence: float | None = None, arousal: float | None = None, tp: str | None = None
+) -> Beat:
     return Beat(
         branch_id=BRANCH,
         sequence_index_in_branch=seq,
         logline=f"beat {seq}",
         valence=valence,
+        arousal=arousal if arousal is not None else (None if valence is None else 0.5),
         turning_point=tp,
     )
 
@@ -50,16 +56,24 @@ async def test_inline_check_flags_timeline_gap():
     assert issues[0].branch_id == BRANCH
 
 
-# a turning point tagged without valence is a framework_misuse
-async def test_inline_check_flags_tp_without_valence():
+# a turning point tagged without affect (valence and arousal) is a framework_misuse
+async def test_inline_check_flags_tp_without_affect():
     issues = await _checker().inline_check(_beat(1, tp="tp4"), [_beat(0)])
     assert [i.type for i in issues] == ["framework_misuse"]
 
 
-# a tagged turning point WITH valence is fine
-async def test_inline_check_tp_with_valence_is_silent():
-    issues = await _checker().inline_check(_beat(1, tp="tp4", valence=0.2), [_beat(0)])
+# a tagged turning point with both valence and arousal is fine
+async def test_inline_check_tp_with_affect_is_silent():
+    issues = await _checker().inline_check(
+        _beat(1, tp="tp4", valence=0.2, arousal=0.3), [_beat(0)]
+    )
     assert issues == []
+
+
+# the Beat model refuses a half-set affect pair, matching the db constraint
+def test_beat_rejects_valence_without_arousal():
+    with pytest.raises(ValidationError):
+        Beat(branch_id=BRANCH, sequence_index_in_branch=0, logline="x", valence=0.5)
 
 
 # both structural problems on one beat surface as two distinct issues

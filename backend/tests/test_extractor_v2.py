@@ -1,7 +1,10 @@
 """Unit tests for MockExtractorV2. Pure, no DB."""
 import uuid
 
-from app.services.extractor_v2 import LlmContextV2, MockExtractorV2
+import pytest
+from pydantic import ValidationError
+
+from app.services.extractor_v2 import LlmContextV2, MockExtractorV2, ProposedBeat
 
 
 def _ctx(message: str) -> LlmContextV2:
@@ -38,3 +41,9 @@ async def test_extract_is_deterministic():
 async def test_extract_logline_is_single_line():
     result = await MockExtractorV2().extract(_ctx("first line\nsecond line"))
     assert result.proposed_beat.logline == "first line"
+
+
+# ProposedBeat refuses a half-set affect pair, same as Beat
+def test_proposed_beat_rejects_half_set_affect():
+    with pytest.raises(ValidationError):
+        ProposedBeat(logline="x", valence=0.5)

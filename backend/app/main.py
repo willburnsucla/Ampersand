@@ -22,9 +22,12 @@ from app.core.config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ───────────────────────────────────────────────────────────────
-    if not settings.is_mock:
-        # Real mode: warm DB pool, JWKS cache, etc.
-        pass
+    # real mode must have a jwt verification secret; fail closed if it is missing
+    if not settings.is_mock and not settings.supabase_jwt_secret:
+        raise RuntimeError(
+            "real mode requires a non-empty supabase_jwt_secret; set it, or run "
+            "with AMPERSAND_BACKEND_MODE=mock for local dev"
+        )
     yield
     # ── Shutdown ──────────────────────────────────────────────────────────────
     if not settings.is_mock:

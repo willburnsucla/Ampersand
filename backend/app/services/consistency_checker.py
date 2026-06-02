@@ -77,11 +77,11 @@ class HeuristicConsistencyChecker(ConsistencyChecker):
                 (beat.id,),
             ))
 
-        if beat.turning_point is not None and beat.valence is None:
+        if beat.turning_point is not None and (beat.valence is None or beat.arousal is None):
             issues.append(_issue(
                 beat.branch_id, "framework_misuse",
-                f"Beat is tagged {beat.turning_point.upper()} but has no valence; "
-                "arc classification needs valence scored at turning points.",
+                f"Beat is tagged {beat.turning_point.upper()} but has no affect scored; "
+                "arc classification needs both valence and arousal at turning points.",
                 (beat.id,),
             ))
 

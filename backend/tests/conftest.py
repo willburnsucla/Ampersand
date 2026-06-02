@@ -1,12 +1,18 @@
 """Test fixtures: a throwaway Postgres (testcontainers) and a per-test session
 that rolls back after each test, so tests are isolated."""
+import os
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
-import app.domain.orm_v2  # noqa: F401  (registers v2 tables on Base.metadata)
-from app.core.db import Base
+# pin mock mode before importing app modules, so the fail-closed real-mode default
+# does not demand real secrets during tests
+os.environ.setdefault("AMPERSAND_BACKEND_MODE", "mock")
+
+import app.domain.orm_v2  # noqa: F401, E402  (registers v2 tables on Base.metadata)
+from app.core.db import Base  # noqa: E402
 
 
 @pytest.fixture(scope="session")
