@@ -17,7 +17,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.auth.clerk_gate import UserContext, get_current_user
+from app.auth.supabase_gate import UserContext, get_current_user
 from app.broadcast.broadcaster import EventBroadcaster, get_broadcaster
 from app.security import PromptSecurityManager, SecurityException
 from app.core.dependencies import (
