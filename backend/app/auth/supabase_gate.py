@@ -14,6 +14,8 @@ from abc import ABC, abstractmethod
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import jwt
+from jose.exceptions import JWTError
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -33,25 +35,32 @@ class AuthGate(ABC):
     async def verify(self, jwt: str) -> UserContext: ...
 
 
-# ── Supabase implementation ──────────────────────────────────────────────────────
-
+# Supabase implementation 
 class SupabaseAuthGate(AuthGate):
     """Verifies JWTs against Supabase's JWT secret."""
 
     async def verify(self, token: str) -> UserContext:
         try:
-            from jose import jwt, JWTError
-            payload = jwt.decode(token, settings.supabase_jwt_secret, algorithms=["HS256"])
-            return UserContext(
-                user_id=payload["sub"],
-                email=payload.get("email"),
+            payload = jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                audience="authenticated",
             )
-        except Exception as exc:
+        except JWTError as exc:
             raise AuthenticationError(f"Supabase JWT verification failed: {exc}") from exc
 
+        # jose only checks aud when it's present
+        if payload.get("aud") != "authenticated":
+            raise AuthenticationError("token has wrong or missing audience")
 
-# ── Mock implementation ───────────────────────────────────────────────────────
+        user_id = payload.get("sub")
+        if not user_id:
+            raise AuthenticationError("token missing 'sub' claim")
+        return UserContext(user_id=user_id, email=payload.get("email"))
 
+
+# Mock implementation 
 class MockAuthGate(AuthGate):
     """Accepts any token and returns a fixed dev user. Never use in production."""
 
@@ -64,8 +73,7 @@ class MockAuthGate(AuthGate):
         return self.MOCK_USER
 
 
-# ── FastAPI dependency ────────────────────────────────────────────────────────
-
+# FastAPI dependency 
 _bearer = HTTPBearer(auto_error=True)
 _gate: AuthGate = MockAuthGate() if settings.is_mock else SupabaseAuthGate()
 
