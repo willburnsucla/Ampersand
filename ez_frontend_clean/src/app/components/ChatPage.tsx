@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { User, Send, Sparkles, BookOpen, BarChart3, TrendingUp, Users } from 'lucide-react';
 import { LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { getOrCreateSession, sendTurn } from '../../lib/api-client';
 
 interface Message {
   id: string;
@@ -17,6 +18,20 @@ const examplePrompts = [
   "Analyze the pacing of my current chapter",
 ];
 
+const mockPaceData = [
+  { point: '1', tension: 65 },
+  { point: '2', tension: 72 },
+  { point: '3', tension: 85 },
+  { point: '4', tension: 78 },
+];
+
+const mockCharacterData = [
+  { subject: 'Depth', value: 75 },
+  { subject: 'Voice', value: 82 },
+  { subject: 'Arc', value: 70 },
+  { subject: 'Motivation', value: 78 },
+];
+
 export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void }) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -27,11 +42,28 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
     },
   ]);
   const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [hasEnoughData, setHasEnoughData] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSend = (messageText?: string) => {
+  const sessionRef = useRef<{ storyId: string; branchId: string } | null>(null);
+
+  useEffect(() => {
+    getOrCreateSession('My Ampersand Story')
+      .then((session) => { sessionRef.current = session; })
+      .catch((err) => {
+        console.error('Failed to create session:', err);
+        setError('Could not connect to the backend. Is the server running?');
+      });
+  }, []);
+
+  const handleSend = async (messageText?: string) => {
     const textToSend = messageText || input;
-    if (!textToSend.trim()) return;
+    if (!textToSend.trim() || isLoading) return;
+    if (!sessionRef.current) {
+      setError('Session not ready yet — please wait a moment.');
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -40,39 +72,37 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
       timestamp: new Date(),
     };
 
-    setMessages([...messages, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
+    setIsLoading(true);
+    setError(null);
 
-    setTimeout(() => {
+    try {
+      const result = await sendTurn({
+        story_id: sessionRef.current.storyId,
+        branch_id: sessionRef.current.branchId,
+        content: textToSend,
+      });
+
       const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: result.turn_id,
         role: 'assistant',
-        content: 'That\'s a fascinating concept. Let me help you develop that idea further. We could explore the character\'s motivation, the setting, or the central conflict. What aspect would you like to dive into first?',
+        content: result.reply,
         timestamp: new Date(),
       };
+
       setMessages(prev => {
         const updated = [...prev, aiMessage];
-        if (updated.length >= 6) {
-          setHasEnoughData(true);
-        }
+        if (updated.length >= 6) setHasEnoughData(true);
         return updated;
       });
-    }, 1000);
+    } catch (err) {
+      console.error('Turn failed:', err);
+      setError('Failed to get a response. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
-
-  const mockPaceData = [
-    { point: '1', tension: 65 },
-    { point: '2', tension: 72 },
-    { point: '3', tension: 85 },
-    { point: '4', tension: 78 },
-  ];
-
-  const mockCharacterData = [
-    { subject: 'Depth', value: 75 },
-    { subject: 'Voice', value: 82 },
-    { subject: 'Arc', value: 70 },
-    { subject: 'Motivation', value: 78 },
-  ];
 
   return (
     <div className="flex h-screen bg-background">
@@ -94,6 +124,13 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
             <span>Profile</span>
           </button>
         </header>
+
+        {/* Error banner */}
+        {error && (
+          <div className="mx-6 mt-4 px-4 py-3 rounded-lg bg-red-100 border border-red-300 text-red-700 text-sm">
+            {error}
+          </div>
+        )}
 
         {/* Chat Messages */}
         <div className="flex-1 overflow-y-auto px-6 py-8 space-y-6">
@@ -124,8 +161,20 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
             </div>
           ))}
 
+          {/* Typing indicator */}
+          {isLoading && (
+            <div className="flex gap-4 justify-start">
+              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-5 h-5 text-primary-foreground" />
+              </div>
+              <div className="px-6 py-4 rounded-2xl bg-card border border-border">
+                <p className="text-muted-foreground animate-pulse">Thinking...</p>
+              </div>
+            </div>
+          )}
+
           {/* Example Prompts - Show only at start */}
-          {messages.length <= 1 && (
+          {messages.length <= 1 && !isLoading && (
             <div className="w-full space-y-4">
               <p className="text-muted-foreground text-center mb-4">Try one of these prompts to get started:</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -152,11 +201,13 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
               placeholder="Tell me about your story idea..."
-              className="flex-1 px-6 py-4 rounded-xl bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-ring"
+              disabled={isLoading}
+              className="flex-1 px-6 py-4 rounded-xl bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             />
             <button
               onClick={() => handleSend()}
-              className="px-6 py-4 rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition-opacity flex items-center gap-2"
+              disabled={isLoading || !input.trim()}
+              className="px-6 py-4 rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition-opacity flex items-center gap-2 disabled:opacity-50"
             >
               <Send className="w-5 h-5" />
               <span>Send</span>
@@ -188,7 +239,6 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
             </div>
           ) : (
             <>
-              {/* Story Tension */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <TrendingUp className="w-4 h-4 text-primary" />
@@ -207,7 +257,6 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
                 </p>
               </div>
 
-              {/* Character Depth */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <Users className="w-4 h-4 text-primary" />
@@ -226,7 +275,6 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
                 </p>
               </div>
 
-              {/* Quick Stats */}
               <div className="space-y-3">
                 <h4>Session Stats</h4>
                 <div className="space-y-2">
@@ -236,20 +284,19 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
                   </div>
                   <div className="flex justify-between items-center p-3 rounded-lg bg-secondary/50">
                     <span className="text-sm">Topics Discussed</span>
-                    <span className="font-medium">3</span>
+                    <span className="font-medium">{Math.floor(messages.length / 2)}</span>
                   </div>
                   <div className="flex justify-between items-center p-3 rounded-lg bg-secondary/50">
                     <span className="text-sm">Story Elements</span>
-                    <span className="font-medium">7</span>
+                    <span className="font-medium">{Math.max(1, messages.length - 2)}</span>
                   </div>
                 </div>
               </div>
 
-              {/* AI Suggestions */}
               <div className="border-l-4 border-primary pl-4">
                 <h4 className="mb-2 text-sm">Latest Insight</h4>
                 <p className="text-sm text-muted-foreground">
-                  Consider adding more sensory details to strengthen the atmosphere of your setting.
+                  {messages.findLast(m => m.role === 'assistant')?.content ?? 'Keep writing to generate insights.'}
                 </p>
               </div>
             </>
