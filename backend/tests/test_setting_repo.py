@@ -3,7 +3,7 @@ import uuid
 
 import pytest
 
-from app.domain.orm_v2 import BranchOrm, ProjectOrm
+from app.domain.orm_v2 import BeatOrm, BeatSettingOrm, BranchOrm, ProjectOrm
 from app.repos.setting_repo import SqlSettingRepo
 
 async def _make_project(db_session, *, owner_id: str = "user-1") -> ProjectOrm:
@@ -17,6 +17,12 @@ async def _make_branch(db_session, project_id) -> BranchOrm:
     db_session.add(branch)
     await db_session.flush()
     return branch
+
+async def _make_beat(db_session, branch_id, sequence_index: int = 0) -> BeatOrm:
+    beat = BeatOrm(branch_id=branch_id, sequence_index_in_branch=sequence_index, logline="test beat")
+    db_session.add(beat)
+    await db_session.flush()
+    return beat
 
 # tests for create / get / list
 
@@ -180,3 +186,34 @@ async def test_upsert_overlay_with_wrong_project_raises(db_session):
             setting_id=s.id, branch_id=branch_a.id,
             project_id=project_b.id, overlay_properties={"time": "dawn"},
         )
+
+
+# list_for_beat returns only the settings linked to that beat
+async def test_list_for_beat_returns_linked_settings(db_session):
+    project = await _make_project(db_session)
+    branch = await _make_branch(db_session, project.id)
+    beat = await _make_beat(db_session, branch.id)
+    repo = SqlSettingRepo(db_session)
+
+    pier = await repo.create(project_id=project.id, name="the pier")
+    await repo.create(project_id=project.id, name="the manor")
+    db_session.add(BeatSettingOrm(beat_id=beat.id, setting_id=pier.id))
+    await db_session.flush()
+
+    linked = await repo.list_for_beat(beat.id, project_id=project.id)
+    assert {s.name for s in linked} == {"the pier"}
+
+
+# a link in project A never leaks when queried with project B's id
+async def test_list_for_beat_scopes_to_project(db_session):
+    project_a = await _make_project(db_session)
+    project_b = await _make_project(db_session)
+    branch_a = await _make_branch(db_session, project_a.id)
+    beat_a = await _make_beat(db_session, branch_a.id)
+    repo = SqlSettingRepo(db_session)
+
+    pier = await repo.create(project_id=project_a.id, name="the pier")
+    db_session.add(BeatSettingOrm(beat_id=beat_a.id, setting_id=pier.id))
+    await db_session.flush()
+
+    assert await repo.list_for_beat(beat_a.id, project_id=project_b.id) == []
