@@ -165,6 +165,98 @@ async def test_dispatch_routes_validates_and_coerces(db_session):
         await cat.dispatch("get_beat", {})
 
 
+# ── analytical wave: find_logic_error, scan_branch, classify_arc, framework_anomalies ──
+
+async def test_find_logic_error_flags_a_gap(db_session):
+    project, branch = await _seed(db_session)
+    beats = SqlBeatRepo(db_session)
+    await beats.create(branch_id=branch.id, sequence_index_in_branch=0, logline="b0")
+    gap = await beats.create(branch_id=branch.id, sequence_index_in_branch=5, logline="b5")
+    cat = _catalog(db_session, project.id, branch.id)
+
+    issues = await cat.find_logic_error(gap.id)
+    assert any(i.type == "timeline_gap" for i in issues)
+
+
+async def test_find_logic_error_clean_beat_is_empty(db_session):
+    project, branch = await _seed(db_session)
+    beats = SqlBeatRepo(db_session)
+    await beats.create(branch_id=branch.id, sequence_index_in_branch=0, logline="b0")
+    b1 = await beats.create(branch_id=branch.id, sequence_index_in_branch=1, logline="b1")
+    cat = _catalog(db_session, project.id, branch.id)
+
+    assert await cat.find_logic_error(b1.id) == []
+
+
+async def test_find_logic_error_missing_beat_is_empty(db_session):
+    project, branch = await _seed(db_session)
+    cat = _catalog(db_session, project.id, branch.id)
+    assert await cat.find_logic_error(uuid.uuid4()) == []
+
+
+async def test_scan_branch_reports_pacing_anomaly(db_session):
+    project, branch = await _seed(db_session)
+    beats = SqlBeatRepo(db_session)
+    for i in range(6):
+        await beats.create(
+            branch_id=branch.id, sequence_index_in_branch=i, logline=f"b{i}",
+            valence=0.1 * i, arousal=0.5,
+        )
+    cat = _catalog(db_session, project.id, branch.id)
+
+    issues = await cat.scan_branch()
+    assert any(i.type == "pacing_anomaly" for i in issues)
+
+
+async def test_classify_arc_returns_best_fit(db_session):
+    project, branch = await _seed(db_session)
+    beats = SqlBeatRepo(db_session)
+    # man-in-hole: high start, low crisis, high end
+    spec = [(0, 0.8, "tp1"), (1, 0.6, None), (2, 0.5, "tp3"), (3, 0.1, "tp4"), (4, 0.8, "tp5")]
+    for seq, val, tp in spec:
+        await beats.create(
+            branch_id=branch.id, sequence_index_in_branch=seq,
+            logline=f"b{seq}", valence=val, arousal=0.5, turning_point=tp,
+        )
+    cat = _catalog(db_session, project.id, branch.id)
+
+    result = await cat.classify_arc()
+    assert result.framework == "vonnegut"
+    assert result.arc == "man_in_hole"
+
+
+async def test_framework_anomalies_by_name(db_session):
+    project, branch = await _seed(db_session)
+    beats = SqlBeatRepo(db_session)
+    for i in range(6):
+        await beats.create(
+            branch_id=branch.id, sequence_index_in_branch=i, logline=f"b{i}",
+            valence=0.1 * i, arousal=0.5,
+        )
+    cat = _catalog(db_session, project.id, branch.id)
+
+    anomalies = await cat.framework_anomalies("vonnegut")
+    assert any(a.kind == "arc" for a in anomalies)
+
+    # an unknown framework name is a hard error, not a silent empty list
+    with pytest.raises(ValueError):
+        await cat.framework_anomalies("aristotle")
+
+
+async def test_dispatch_reaches_analytical_tools(db_session):
+    project, branch = await _seed(db_session)
+    b = await SqlBeatRepo(db_session).create(
+        branch_id=branch.id, sequence_index_in_branch=0, logline="b0"
+    )
+    cat = _catalog(db_session, project.id, branch.id)
+
+    # find_logic_error via dispatch, with a JSON-string beat id the model coerces
+    assert await cat.dispatch("find_logic_error", {"beat_id": str(b.id)}) == []
+    assert isinstance(await cat.dispatch("scan_branch", {}), list)
+    arc = await cat.dispatch("classify_arc", {})
+    assert arc.framework == "vonnegut"
+
+
 def test_tool_specs_cover_all_tools():
     # tool_specs is pure, repos are unused here
     cat = QueryCatalog(
@@ -174,9 +266,10 @@ def test_tool_specs_cover_all_tools():
     specs = cat.tool_specs()
     names = {s["name"] for s in specs}
 
-    assert len(specs) == 10
+    assert len(specs) == 14
     assert "get_beat_entities" in names
-    assert "find_logic_error" not in names  # analytical tools are the later wave
+    # the analytical wave is now wired in alongside the retrieval tools
+    assert {"find_logic_error", "scan_branch", "classify_arc", "framework_anomalies"} <= names
     for s in specs:
         assert set(s) == {"name", "description", "input_schema"}
         assert s["input_schema"]["type"] == "object"

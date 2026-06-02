@@ -29,11 +29,17 @@ from app.domain.models_v2 import (
     Theme,
     ThemeView,
 )
+from app.domain.narrative import Anomaly
+from app.frameworks import DEFAULT_REGISTRY, FrameworkRegistry, FrameworkResult
 from app.repos.beat_repo import BeatRepo
 from app.repos.character_repo import CharacterRepo
 from app.repos.issue_repo import IssueRepo
 from app.repos.setting_repo import SettingRepo
 from app.repos.theme_repo import ThemeRepo
+from app.services.consistency_checker import (
+    ConsistencyChecker,
+    HeuristicConsistencyChecker,
+)
 
 
 # tool argument schemas, the single source of truth for the JSON the LLM sees
@@ -60,6 +66,10 @@ class _SettingId(BaseModel):
 
 class _IssueFilter(BaseModel):
     status: IssueStatus | None = None
+
+
+class _FrameworkName(BaseModel):
+    framework: str
 
 
 class _NoArgs(BaseModel):
@@ -102,7 +112,8 @@ class QueryCatalog:
             _NoArgs,
         ),
         "get_setting_view": (
-            "Fetch one setting resolved for the current branch. Returns null if not in this project.",
+            "Fetch one setting resolved for the current branch. Returns null if not in "
+            "this project.",
             _SettingId,
         ),
         "list_issues": (
@@ -113,6 +124,28 @@ class QueryCatalog:
         "get_beat_entities": (
             "List the characters, themes, and settings linked to a beat.",
             _BeatId,
+        ),
+        "find_logic_error": (
+            "Check one beat for consistency and pacing issues against its neighbors in "
+            "the current branch. Returns a list of issues, empty if the beat is clean or "
+            "not in this branch.",
+            _BeatId,
+        ),
+        "scan_branch": (
+            "Scan the entire current branch for consistency and pacing issues. Returns "
+            "every issue found.",
+            _NoArgs,
+        ),
+        "classify_arc": (
+            "Classify the current branch's emotional arc shape (Vonnegut). Returns the "
+            "best-fit arc, or null if the shape is ambiguous, plus any arc-level pacing "
+            "anomalies.",
+            _NoArgs,
+        ),
+        "framework_anomalies": (
+            "Run a named narrative framework over the current branch and return its "
+            "anomalies. Frameworks: vonnegut (arc shape), papalampidi (turning-point pacing).",
+            _FrameworkName,
         ),
     }
 
@@ -126,6 +159,8 @@ class QueryCatalog:
         themes: ThemeRepo,
         settings: SettingRepo,
         issues: IssueRepo,
+        checker: ConsistencyChecker | None = None,
+        frameworks: FrameworkRegistry = DEFAULT_REGISTRY,
     ) -> None:
         self._project_id = project_id
         self._branch_id = branch_id
@@ -134,6 +169,10 @@ class QueryCatalog:
         self._themes = themes
         self._settings = settings
         self._issues = issues
+        self._frameworks = frameworks
+        # default to the heuristic checker built over our own beat repo; an
+        # LLM-backed ConsistencyChecker can be injected without changing callers.
+        self._checker = checker or HeuristicConsistencyChecker(beats, frameworks)
 
     async def get_beats_in_branch(
         self, start: int | None = None, end: int | None = None
@@ -184,6 +223,24 @@ class QueryCatalog:
             themes=await self._themes.list_for_beat(beat_id, project_id=self._project_id),
             settings=await self._settings.list_for_beat(beat_id, project_id=self._project_id),
         )
+
+    async def find_logic_error(self, beat_id: UUID) -> list[Issue]:
+        beat = await self._beats.get(beat_id, branch_id=self._branch_id)
+        if beat is None:
+            return []
+        context = await self._beats.list(branch_id=self._branch_id)
+        return await self._checker.inline_check(beat, context)
+
+    async def scan_branch(self) -> list[Issue]:
+        return await self._checker.deep_scan(self._branch_id)
+
+    async def classify_arc(self) -> FrameworkResult:
+        beats = await self._beats.list(branch_id=self._branch_id)
+        return self._frameworks.get("vonnegut").analyze(beats)
+
+    async def framework_anomalies(self, framework: str) -> list[Anomaly]:
+        beats = await self._beats.list(branch_id=self._branch_id)
+        return list(self._frameworks.get(framework).analyze(beats).anomalies)
 
     def tool_specs(self) -> list[dict[str, Any]]:
         specs = []
