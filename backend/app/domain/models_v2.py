@@ -159,3 +159,17 @@ class ConversationTurn(BaseModel):
     role: TurnRole
     content: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# orchestrator turn request and result
+
+class TurnRequestV2(BaseModel):
+    project_id: UUID
+    branch_id: UUID
+    content: str = Field(min_length=1, max_length=32000)
+
+
+class TurnResultV2(BaseModel):
+    reply: str
+    beat: Beat | None = None
+    issues: list[Issue] = Field(default_factory=list)

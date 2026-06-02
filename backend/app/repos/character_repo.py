@@ -82,6 +82,9 @@ class CharacterRepo(ABC):
     @abstractmethod
     async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Character]: ...
 
+    @abstractmethod
+    async def link_to_beat(self, *, beat_id: UUID, character_id: UUID) -> None: ...
+
 class SqlCharacterRepo(CharacterRepo):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -207,3 +210,9 @@ class SqlCharacterRepo(CharacterRepo):
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_to_character(r) for r in rows]
+
+    async def link_to_beat(self, *, beat_id: UUID, character_id: UUID) -> None:
+        existing = await self._session.get(BeatCharacterOrm, (beat_id, character_id))
+        if existing is None:
+            self._session.add(BeatCharacterOrm(beat_id=beat_id, character_id=character_id))
+            await self._session.flush()
