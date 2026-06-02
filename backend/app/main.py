@@ -55,17 +55,19 @@ def create_app() -> FastAPI:
 
     # ── Mock mode: override auth to skip real Clerk JWT verification ──────────
     if settings.is_mock:
-        from app.auth.clerk_gate import MockAuthGate, UserContext, get_current_user
+        from app.auth.clerk_gate import UserContext, get_current_user
 
         mock_user = UserContext(user_id="mock-user-id", email="dev@ampersand.local")
         app.dependency_overrides[get_current_user] = lambda: mock_user
 
     # ── Routers ───────────────────────────────────────────────────────────────
     from app.api.router import router as api_router
+    from app.api.router_v2 import router_v2
     from app.broadcast.sse import sse_router
 
     app.include_router(api_router, prefix="/api/v1")
     app.include_router(sse_router, prefix="/api/v1")
+    app.include_router(router_v2, prefix="/api/v2")
 
     return app
 
