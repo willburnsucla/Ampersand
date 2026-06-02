@@ -3,7 +3,7 @@ import uuid
 
 import pytest
 
-from app.domain.orm_v2 import BranchOrm, ProjectOrm
+from app.domain.orm_v2 import BeatCharacterOrm, BeatOrm, BranchOrm, ProjectOrm
 from app.repos.character_repo import SqlCharacterRepo
 
 
@@ -19,6 +19,13 @@ async def _make_branch(db_session, project_id) -> BranchOrm:
     db_session.add(branch)
     await db_session.flush()
     return branch
+
+
+async def _make_beat(db_session, branch_id, sequence_index: int = 0) -> BeatOrm:
+    beat = BeatOrm(branch_id=branch_id, sequence_index_in_branch=sequence_index, logline="test beat")
+    db_session.add(beat)
+    await db_session.flush()
+    return beat
 
 
 # tests for create / get / list
@@ -191,3 +198,34 @@ async def test_upsert_overlay_with_wrong_project_raises(db_session):
             character_id=sarah.id, branch_id=branch_a.id,
             project_id=project_b.id, overlay_properties={"age": 99},
         )
+
+
+# list_for_beat returns only the characters linked to that beat
+async def test_list_for_beat_returns_linked_characters(db_session):
+    project = await _make_project(db_session)
+    branch = await _make_branch(db_session, project.id)
+    beat = await _make_beat(db_session, branch.id)
+    repo = SqlCharacterRepo(db_session)
+
+    sarah = await repo.create(project_id=project.id, name="Sarah")
+    await repo.create(project_id=project.id, name="Tom")
+    db_session.add(BeatCharacterOrm(beat_id=beat.id, character_id=sarah.id))
+    await db_session.flush()
+
+    linked = await repo.list_for_beat(beat.id, project_id=project.id)
+    assert {c.name for c in linked} == {"Sarah"}
+
+
+# a link in project A never leaks when queried with project B's id
+async def test_list_for_beat_scopes_to_project(db_session):
+    project_a = await _make_project(db_session)
+    project_b = await _make_project(db_session)
+    branch_a = await _make_branch(db_session, project_a.id)
+    beat_a = await _make_beat(db_session, branch_a.id)
+    repo = SqlCharacterRepo(db_session)
+
+    sarah = await repo.create(project_id=project_a.id, name="Sarah")
+    db_session.add(BeatCharacterOrm(beat_id=beat_a.id, character_id=sarah.id))
+    await db_session.flush()
+
+    assert await repo.list_for_beat(beat_a.id, project_id=project_b.id) == []

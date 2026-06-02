@@ -1,6 +1,6 @@
 """SettingRepo: CRUD on settings + per-branch overlays.
 
-Only this module touches SettingOrm and SettingBranchOverlayOrm.
+Only this module touches SettingOrm, SettingBranchOverlayOrm, and the beat-setting link.
 Returns Pydantic Settings and SettingViews, never ORM objects.
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models_v2 import Setting, SettingView
-from app.domain.orm_v2 import BranchOrm, SettingBranchOverlayOrm, SettingOrm
+from app.domain.orm_v2 import BeatSettingOrm, BranchOrm, SettingBranchOverlayOrm, SettingOrm
 
 
 # DB -> APP helper
@@ -76,6 +76,9 @@ class SettingRepo(ABC):
     async def get_view(
         self, setting_id: UUID, branch_id: UUID, *, project_id: UUID
     ) -> SettingView | None: ...
+
+    @abstractmethod
+    async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Setting]: ...
 
 
 class SqlSettingRepo(SettingRepo):
@@ -190,3 +193,16 @@ class SqlSettingRepo(SettingRepo):
         overlay = (await self._session.execute(overlay_stmt)).scalar_one_or_none()
 
         return _merge_view(base, overlay, branch_id)
+
+    async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Setting]:
+        stmt = (
+            select(SettingOrm)
+            .join(BeatSettingOrm, BeatSettingOrm.setting_id == SettingOrm.id)
+            .where(
+                BeatSettingOrm.beat_id == beat_id,
+                SettingOrm.project_id == project_id,
+            )
+            .order_by(SettingOrm.created_at)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_setting(r) for r in rows]

@@ -131,6 +131,12 @@ class ThemeView(_ViewBase): pass
 class SettingView(_ViewBase): pass
 
 
+class BeatEntities(BaseModel):
+    characters: list[Character]
+    themes: list[Theme]
+    settings: list[Setting]
+
+
 # ── Issues (bot-detected, persisted, lifecycle-tracked) ───────────────────────
 
 class Issue(BaseModel):

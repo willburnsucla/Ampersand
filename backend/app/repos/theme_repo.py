@@ -1,6 +1,6 @@
 """ThemeRepo: CRUD on themes + per-branch overlays.
 
-Only this module touches ThemeOrm and ThemeBranchOverlayOrm.
+Only this module touches ThemeOrm, ThemeBranchOverlayOrm, and the beat-theme link.
 Returns Pydantic Themes and ThemeViews, never ORM objects.
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models_v2 import Theme, ThemeView
-from app.domain.orm_v2 import BranchOrm, ThemeBranchOverlayOrm, ThemeOrm
+from app.domain.orm_v2 import BeatThemeOrm, BranchOrm, ThemeBranchOverlayOrm, ThemeOrm
 
 
 # DB -> APP helper
@@ -78,6 +78,9 @@ class ThemeRepo(ABC):
     async def get_view(
         self, theme_id: UUID, branch_id: UUID, *, project_id: UUID
     ) -> ThemeView | None: ...
+
+    @abstractmethod
+    async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Theme]: ...
 
 class SqlThemeRepo(ThemeRepo):
     def __init__(self, session: AsyncSession) -> None:
@@ -191,3 +194,16 @@ class SqlThemeRepo(ThemeRepo):
         overlay = (await self._session.execute(overlay_stmt)).scalar_one_or_none()
 
         return _merge_view(base, overlay, branch_id)
+
+    async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Theme]:
+        stmt = (
+            select(ThemeOrm)
+            .join(BeatThemeOrm, BeatThemeOrm.theme_id == ThemeOrm.id)
+            .where(
+                BeatThemeOrm.beat_id == beat_id,
+                ThemeOrm.project_id == project_id,
+            )
+            .order_by(ThemeOrm.created_at)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_theme(r) for r in rows]

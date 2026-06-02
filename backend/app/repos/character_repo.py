@@ -1,6 +1,6 @@
 """CharacterRepo: CRUD on characters + per-branch overlays.
 
-Only this module touches CharacterOrm and CharacterBranchOverlayOrm.
+Only this module touches CharacterOrm, CharacterBranchOverlayOrm, and the beat-character link.
 Returns Pydantic Characters and CharacterViews, never ORM objects.
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models_v2 import Character, CharacterView
-from app.domain.orm_v2 import BranchOrm, CharacterBranchOverlayOrm, CharacterOrm
+from app.domain.orm_v2 import BeatCharacterOrm, BranchOrm, CharacterBranchOverlayOrm, CharacterOrm
 
 
 # DB -> APP helper
@@ -78,6 +78,9 @@ class CharacterRepo(ABC):
     async def get_view(
         self, character_id: UUID, branch_id: UUID, *, project_id: UUID
     ) -> CharacterView | None: ...
+
+    @abstractmethod
+    async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Character]: ...
 
 class SqlCharacterRepo(CharacterRepo):
     def __init__(self, session: AsyncSession) -> None:
@@ -191,3 +194,16 @@ class SqlCharacterRepo(CharacterRepo):
         overlay = (await self._session.execute(overlay_stmt)).scalar_one_or_none()
 
         return _merge_view(base, overlay, branch_id)
+
+    async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Character]:
+        stmt = (
+            select(CharacterOrm)
+            .join(BeatCharacterOrm, BeatCharacterOrm.character_id == CharacterOrm.id)
+            .where(
+                BeatCharacterOrm.beat_id == beat_id,
+                CharacterOrm.project_id == project_id,
+            )
+            .order_by(CharacterOrm.created_at)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_character(r) for r in rows]
