@@ -24,6 +24,7 @@ def _beat(seq: int, *, valence: float | None = None, tp: str | None = None) -> B
         sequence_index_in_branch=seq,
         logline=f"beat {seq}",
         valence=valence,
+        arousal=None if valence is None else 0.5,
         turning_point=tp,
     )
 

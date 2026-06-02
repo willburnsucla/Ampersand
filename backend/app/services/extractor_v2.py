@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.domain.models_v2 import (
     Beat,
@@ -50,6 +50,12 @@ class ProposedBeat(BaseModel):
     character_names: list[str] = Field(default_factory=list)
     theme_names: list[str] = Field(default_factory=list)
     setting_names: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _affect_is_atomic(self) -> ProposedBeat:
+        if (self.valence is None) != (self.arousal is None):
+            raise ValueError("valence and arousal must both be set or both omitted")
+        return self
 
 
 class ExtractionResultV2(BaseModel):
