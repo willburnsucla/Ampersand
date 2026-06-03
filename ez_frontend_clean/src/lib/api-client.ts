@@ -14,10 +14,7 @@ const API_BASE = `${BASE_URL}/api/v1`;
 // replace this with a real JWT from your auth client.
 const AUTH_TOKEN = "mock";
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
@@ -84,7 +81,16 @@ interface Session {
 export async function getOrCreateSession(title = "My Story"): Promise<Session> {
   const cached = sessionStorage.getItem(SESSION_KEY);
   if (cached) {
-    return JSON.parse(cached) as Session;
+    try {
+      const session = JSON.parse(cached) as Session;
+      const stories = await listStories();
+      if (stories.some((s) => s.id === session.storyId)) {
+        return session;
+      }
+    } catch (err) {
+      console.warn("Failed to validate cached session, regenerating...", err);
+    }
+    clearSession();
   }
 
   const story = await createStory({ title });
