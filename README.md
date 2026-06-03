@@ -67,7 +67,7 @@ The `docs/mid-layer-architecture.md` doc has the full version: the layer map, th
 | Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 async, Alembic |
 | Database | PostgreSQL 16 + pgvector (Supabase); no vector store yet, pgvector slots in behind the catalog later |
 | LLM | Anthropic Claude (`claude-haiku-4-5` default, `claude-sonnet-4-6` escalation) |
-| Auth | Supabase JWT, verified server-side (the gate lives in `app/auth/clerk_gate.py`, a stale filename: it is Supabase, not Clerk) |
+| Auth | Supabase JWT, verified server-side in `app/auth/supabase_gate.py` (ES256 with an HS256 fallback) |
 | Realtime | Supabase Realtime (planned), replacing the Week-1 custom SSE broadcaster |
 | Frontend | Next.js 14 in `frontend/` (Zustand graph store, TanStack Query, d3); `ez_frontend_clean/` is a separate Vite mockup currently wired to the mock backend |
 
