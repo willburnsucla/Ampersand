@@ -47,6 +47,7 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
   const [error, setError] = useState<string | null>(null);
 
   const sessionRef = useRef<{ storyId: string; branchId: string } | null>(null);
+  const isSendingRef = useRef(false);
 
   useEffect(() => {
     getOrCreateSession('My Ampersand Story')
@@ -59,7 +60,7 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
 
   const handleSend = async (messageText?: string) => {
     const textToSend = messageText || input;
-    if (!textToSend.trim() || isLoading) return;
+    if (!textToSend.trim() || isLoading || isSendingRef.current) return;
     if (!sessionRef.current) {
       setError('Session not ready yet — please wait a moment.');
       return;
@@ -72,6 +73,7 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
       timestamp: new Date(),
     };
 
+    isSendingRef.current = true;
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
@@ -101,6 +103,7 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
       setError('Failed to get a response. Please try again.');
     } finally {
       setIsLoading(false);
+      isSendingRef.current = false;
     }
   };
 
@@ -182,7 +185,8 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
                   <button
                     key={index}
                     onClick={() => handleSend(prompt)}
-                    className="px-5 py-3 rounded-xl bg-card border border-border hover:border-primary hover:bg-secondary transition-all text-left"
+                    disabled={isLoading}
+                    className="px-5 py-3 rounded-xl bg-card border border-border hover:border-primary hover:bg-secondary transition-all text-left disabled:opacity-50"
                   >
                     <p className="text-sm">{prompt}</p>
                   </button>
