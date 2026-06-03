@@ -1,5 +1,9 @@
 """
-InjectionDetector — Pattern-based detection for prompt injection and jailbreak attempts.
+InjectionDetector — Detection for prompt injection and jailbreak attempts.
+
+Supports both ML-based and heuristic-based detection:
+  - ML-based: Uses pre-trained logistic regression classifier (if model available)
+  - Heuristic-based: Pattern matching fallback (always available)
 
 Methods:
   - detect_injection_attempt(text: str) -> tuple[bool, float, list[str]]: Check for suspicion
@@ -9,7 +13,7 @@ Methods:
 from __future__ import annotations
 
 import logging
-from typing import Final
+from typing import TYPE_CHECKING, Optional
 
 from app.security.config import (
     INJECTION_KEYWORDS,
@@ -20,20 +24,31 @@ from app.security.config import (
     VERBOSE_LOGGING,
 )
 
+if TYPE_CHECKING:
+    from app.security.ml_classifier import MLInjectionClassifier
+
 logger = logging.getLogger(__name__)
 
 
 class InjectionDetector:
     """
-    Pattern-based detection for prompt injection and jailbreak attempts.
-    
-    Heuristic-based scoring:
-      - Each matched keyword scores KEYWORD_SCORE_PER_MATCH points
-      - Each matched pattern combination scores PATTERN_MULTIPLIER × keyword score
-      - Score >= INJECTION_SCORE_THRESHOLD is flagged as high-confidence injection
-    
-    Not a guarantee (can have false positives/negatives), but catches obvious attempts.
+    Hybrid detection for prompt injection and jailbreak attempts.
+
+    Attempts ML-based classification first (if model available). Falls back to
+    heuristic pattern matching if ML fails or is not configured.
+
+    ML scoring: 0-5 scale where higher = more suspicious
+    Heuristic scoring: Sum of matched keywords + pattern combinations
     """
+
+    def __init__(self, ml_classifier: Optional[MLInjectionClassifier] = None):
+        """Initialize detector with optional ML classifier.
+
+        Args:
+            ml_classifier: Optional pre-trained ML classifier for injection detection.
+                          If None, uses heuristic pattern matching only.
+        """
+        self.ml_classifier = ml_classifier
 
     def detect_injection_attempt(
         self,
@@ -69,12 +84,35 @@ class InjectionDetector:
         """
         Score text for prompt injection/jailbreak suspicion.
 
+        Attempts ML-based classification first (if available). Falls back to
+        heuristic pattern matching if ML fails.
+
         Returns:
-            (total_score, matched_keywords)
+            (total_score, matched_keywords_or_method)
+            - total_score: 0-5 scale (higher = more suspicious)
+            - matched_keywords_or_method: List of matched patterns or detection method
         """
         if not text:
             return 0.0, []
 
+        # Try ML-based detection first
+        if self.ml_classifier:
+            ml_score = self.ml_classifier.score(text)
+            if ml_score is not None:
+                if VERBOSE_LOGGING:
+                    logger.debug(f"Using ML classifier: score={ml_score:.2f}")
+                return ml_score, ["detection_method: ML"]
+
+        # Fall back to heuristic scoring
+        return self._score_suspicion_heuristic(text)
+
+    def _score_suspicion_heuristic(self, text: str) -> tuple[float, list[str]]:
+        """
+        Score text using heuristic pattern matching (keyword detection).
+
+        Returns:
+            (total_score, matched_keywords)
+        """
         text_lower = text.lower()
         matched_keywords: list[str] = []
         score: float = 0.0
@@ -92,6 +130,9 @@ class InjectionDetector:
                 # Pattern matched; apply multiplier
                 score += len(pattern) * KEYWORD_SCORE_PER_MATCH * PATTERN_MULTIPLIER
                 matched_keywords.append(f"pattern: {' + '.join(pattern)}")
+
+        if VERBOSE_LOGGING and matched_keywords:
+            logger.debug(f"Heuristic detection: score={score:.1f}, matched={matched_keywords}")
 
         return score, matched_keywords
 

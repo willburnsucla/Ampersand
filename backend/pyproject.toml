@@ -30,6 +30,9 @@ dependencies = [
 
     # Embeddings (Voyage AI)
     "voyageai>=0.3",
+
+    # ML (injection detection)
+    "scikit-learn>=1.4",
 ]
 
 [project.optional-dependencies]

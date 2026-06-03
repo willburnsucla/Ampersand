@@ -4,7 +4,7 @@ PromptSecurityManager — Main orchestrator for prompt security.
 Delegates to:
   - PromptSanitizer: Text cleaning
   - ContextValidator: Structure/boundary validation
-  - InjectionDetector: Pattern-based detection
+  - InjectionDetector: Detection (ML-based or heuristic)
 
 Public method:
   - process_context(ctx: LlmContext, story_id: UUID, branch_id: UUID) -> LlmContext
@@ -13,7 +13,7 @@ Public method:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from app.security.context_validator import ContextValidator
@@ -21,6 +21,7 @@ from app.security.injection_detector import InjectionDetector
 from app.security.prompt_sanitizer import PromptSanitizer
 
 if TYPE_CHECKING:
+    from app.security.ml_classifier import MLInjectionClassifier
     from app.services.extractor import LlmContext
 
 logger = logging.getLogger(__name__)
@@ -42,19 +43,27 @@ class SecurityException(Exception):
 class PromptSecurityManager:
     """
     Multi-layer prompt security orchestrator.
-    
+
+    Supports both ML-based and heuristic injection detection.
+
     Workflow:
-      1. Sanitize user_message (PromptSanitizer)
-      2. Detect injection attempts (InjectionDetector)
+      1. Detect injection attempts (InjectionDetector with optional ML)
+      2. Sanitize user_message (PromptSanitizer)
       3. Validate LlmContext structure and boundaries (ContextValidator)
       4. Validate branch consistency (prevent cross-user leakage)
       5. Return sanitized context or raise SecurityException
     """
 
-    def __init__(self) -> None:
+    def __init__(self, ml_classifier: Optional[MLInjectionClassifier] = None) -> None:
+        """Initialize with optional ML classifier.
+
+        Args:
+            ml_classifier: Optional pre-trained ML classifier. If provided, uses ML-based
+                          injection detection. If None, falls back to heuristic patterns.
+        """
         self.sanitizer = PromptSanitizer()
         self.validator = ContextValidator()
-        self.detector = InjectionDetector()
+        self.detector = InjectionDetector(ml_classifier=ml_classifier)
 
     async def process_context(
         self,

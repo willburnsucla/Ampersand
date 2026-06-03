@@ -109,3 +109,18 @@ VERBOSE_LOGGING: Final[bool] = os.getenv("SECURITY_VERBOSE_LOGGING", "false").lo
     "1",
     "yes",
 )
+
+# ── ML-Based Detection ────────────────────────────────────────────────────────
+
+# Path to pickled ML model for injection detection (optional).
+# If set and file exists, uses ML classifier instead of heuristics.
+# If not set or file doesn't exist, falls back to heuristic pattern matching.
+SECURITY_ML_MODEL_PATH: Final[str] = os.getenv("SECURITY_ML_MODEL_PATH", "")
+
+# Voyage AI API key for embeddings (required if using ML model).
+VOYAGE_API_KEY: Final[str] = os.getenv("VOYAGE_API_KEY", "")
+
+# Timeout for ML inference in milliseconds (default: 100ms).
+# If inference takes longer, falls back to heuristics.
+ML_INFERENCE_TIMEOUT_MS: Final[int] = int(os.getenv("ML_INFERENCE_TIMEOUT_MS", "100"))
+
