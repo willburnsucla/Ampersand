@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt
@@ -35,20 +36,30 @@ class AuthGate(ABC):
     async def verify(self, jwt: str) -> UserContext: ...
 
 
-# Supabase implementation 
+# Supabase implementation
 class SupabaseAuthGate(AuthGate):
-    """Verifies JWTs against Supabase's JWT secret."""
+    """
+    Verifies Supabase JWTs.
+
+    Supabase projects sign tokens either asymmetrically (ES256, the current
+    default — verified with the project's public JWKS) or with the legacy
+    symmetric secret (HS256). We pick the path by the token's `alg` header and
+    fall back to HS256 so either scheme works.
+    """
+
+    # Cached JWKS keyed by `kid`. Fetched once on first asymmetric token.
+    _jwks: dict[str, dict] = {}
 
     async def verify(self, token: str) -> UserContext:
         try:
-            payload = jwt.decode(
-                token,
-                settings.supabase_jwt_secret,
-                algorithms=["HS256"],
-                audience="authenticated",
-            )
+            alg = jwt.get_unverified_header(token).get("alg")
         except JWTError as exc:
-            raise AuthenticationError(f"Supabase JWT verification failed: {exc}") from exc
+            raise AuthenticationError(f"malformed token: {exc}") from exc
+
+        if alg == "HS256":
+            payload = self._decode_hs256(token)
+        else:
+            payload = await self._decode_asymmetric(token, alg)
 
         # jose only checks aud when it's present
         if payload.get("aud") != "authenticated":
@@ -58,6 +69,52 @@ class SupabaseAuthGate(AuthGate):
         if not user_id:
             raise AuthenticationError("token missing 'sub' claim")
         return UserContext(user_id=user_id, email=payload.get("email"))
+
+    def _decode_hs256(self, token: str) -> dict:
+        try:
+            return jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                audience="authenticated",
+            )
+        except JWTError as exc:
+            raise AuthenticationError(f"HS256 verification failed: {exc}") from exc
+
+    async def _decode_asymmetric(self, token: str, alg: str | None) -> dict:
+        kid = jwt.get_unverified_header(token).get("kid")
+        key = await self._get_signing_key(kid)
+        try:
+            return jwt.decode(
+                token,
+                key,
+                algorithms=[alg] if alg else ["ES256", "RS256"],
+                audience="authenticated",
+            )
+        except JWTError as exc:
+            raise AuthenticationError(f"{alg} verification failed: {exc}") from exc
+
+    async def _get_signing_key(self, kid: str | None) -> dict:
+        if kid and kid in self._jwks:
+            return self._jwks[kid]
+
+        if not settings.supabase_url:
+            raise AuthenticationError("SUPABASE_URL not set; cannot fetch JWKS")
+
+        url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                keys = resp.json().get("keys", [])
+        except (httpx.HTTPError, ValueError) as exc:
+            raise AuthenticationError(f"could not fetch JWKS: {exc}") from exc
+
+        self._jwks = {k["kid"]: k for k in keys if "kid" in k}
+
+        if kid and kid in self._jwks:
+            return self._jwks[kid]
+        raise AuthenticationError(f"no signing key for kid={kid}")
 
 
 # Mock implementation 
