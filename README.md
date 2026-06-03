@@ -176,6 +176,5 @@ Backend tests run against a throwaway Postgres via testcontainers, so Docker mus
 | Emily Zhang | [@emilyzhang625](https://github.com/emilyzhang625) |
 | Ashley Wu | [@ashleyjwu](https://github.com/ashleyjwu) |
 | Hana Chloe Yoon | [@cloyooni](https://github.com/cloyooni) |
-| Eric Zhou | [@zitongzhoueric](https://github.com/zitongzhoueric) |
 
 CS130. PRs welcome; read the invariants first.
