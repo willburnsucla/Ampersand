@@ -22,9 +22,12 @@ from app.core.config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ───────────────────────────────────────────────────────────────
-    if not settings.is_mock:
-        # Real mode: warm DB pool, JWKS cache, etc.
-        pass
+    # real mode must have a jwt verification secret; fail closed if it is missing
+    if not settings.is_mock and not settings.supabase_jwt_secret:
+        raise RuntimeError(
+            "real mode requires a non-empty supabase_jwt_secret; set it, or run "
+            "with AMPERSAND_BACKEND_MODE=mock for local dev"
+        )
     yield
     # ── Shutdown ──────────────────────────────────────────────────────────────
     if not settings.is_mock:
@@ -55,17 +58,19 @@ def create_app() -> FastAPI:
 
     # ── Mock mode: override auth to skip real Supabase JWT verification ───────
     if settings.is_mock:
-        from app.auth.supabase_gate import MockAuthGate, UserContext, get_current_user
+        from app.auth.supabase_gate import UserContext, get_current_user
 
         mock_user = UserContext(user_id="mock-user-id", email="dev@ampersand.local")
         app.dependency_overrides[get_current_user] = lambda: mock_user
 
     # ── Routers ───────────────────────────────────────────────────────────────
     from app.api.router import router as api_router
+    from app.api.router_v2 import router_v2
     from app.broadcast.sse import sse_router
 
     app.include_router(api_router, prefix="/api/v1")
     app.include_router(sse_router, prefix="/api/v1")
+    app.include_router(router_v2, prefix="/api/v2")
 
     return app
 

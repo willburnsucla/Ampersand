@@ -82,6 +82,9 @@ class ThemeRepo(ABC):
     @abstractmethod
     async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Theme]: ...
 
+    @abstractmethod
+    async def link_to_beat(self, *, beat_id: UUID, theme_id: UUID) -> None: ...
+
 class SqlThemeRepo(ThemeRepo):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -207,3 +210,9 @@ class SqlThemeRepo(ThemeRepo):
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_to_theme(r) for r in rows]
+
+    async def link_to_beat(self, *, beat_id: UUID, theme_id: UUID) -> None:
+        existing = await self._session.get(BeatThemeOrm, (beat_id, theme_id))
+        if existing is None:
+            self._session.add(BeatThemeOrm(beat_id=beat_id, theme_id=theme_id))
+            await self._session.flush()

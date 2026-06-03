@@ -213,29 +213,29 @@ story," whether it surfaced from a tool call or the inline check.
 Built and on main:
 - all repos (Project, Branch, Beat, Character, Theme, Setting, Issue, Conversation) on orm_v2
 - `BranchStateMachine`
-- `Extractor` ABC + `MockExtractor` (stub for ClaudeExtractor)
+- the v1 graph `Extractor` ABC + `MockExtractor`; the v2 extractor is below
 - the security module (sanitizer, validator, detector, manager)
 
-Built and uncommitted on `feature/services-orchestrator` (stacked on `feature/post-merge-fixes`):
-- `BeatEntities` DTO in `models_v2`
-- `list_for_beat` on `CharacterRepo`, `ThemeRepo`, `SettingRepo` (with the boundary that each repo owns its own beat-entity link, project-id scoped for tenancy)
-- `app/services/query_catalog.py`: the Facade with 10 retrieval tools, Pydantic-derived `tool_specs()`, validating `dispatch()`. Tenancy baked in at construction, never a tool argument.
-- 6 new repo tests + 9 catalog tests. Full suite: 152 green.
+Built on `feature/services-orchestrator`:
+- `BeatEntities` DTO, plus `list_for_beat` and `link_to_beat` on `CharacterRepo`, `ThemeRepo`, `SettingRepo` (each repo owns its own beat-entity link, project-id scoped for tenancy)
+- `app/services/query_catalog.py`: the Facade, now 14 tools (10 retrieval + 4 analytical), Pydantic-derived `tool_specs()`, validating `dispatch()`. Tenancy baked in at construction, never a tool argument.
+- `frameworks/`: `Framework` ABC + `VonnegutFramework` + `PapalampidiFramework` wrapping `narrative.py`, behind `FrameworkRegistry`
+- `ConsistencyChecker` ABC + `HeuristicConsistencyChecker`
+- the v2 extraction seam in `extractor_v2.py`: `LlmContextV2`, `ProposedBeat`, `ExtractionResultV2`, `ExtractorV2` ABC + deterministic `MockExtractorV2`
+- `ContextBuilder`, `DeltaApplier`, `SocraticPrompter`, and the `ConversationOrchestrator` Mediator
+- `router_v2.py` (`POST /api/v2/conversation/turn`) and the v2 DI in `dependencies_v2.py`
+- full suite 194 green, including an end-to-end HTTP test through the route
 
 Not built yet:
-- `ConsistencyChecker` (unlocks the analytical tools `find_logic_error` and `scan_branch`)
-- `frameworks/` module (Vonnegut + Papalampidi strategies + `FrameworkRegistry`, unlocks `classify_arc` and `framework_anomalies`)
-- the analytical tools wired into the catalog (depends on the two above)
-- the remaining module 5 services: `ContextBuilder`, `DeltaApplier`, `SocraticPrompter`, `ConversationOrchestrator`
-- `router_v2.py` and the DI wiring (module 6)
+- `ClaudeExtractorV2`, the real extraction; `MockExtractorV2` stands in behind the same ABC (change C1)
+- an LLM-backed `ConsistencyChecker` for the semantic checks; the heuristic stands in (change C2)
+- InMemory v2 repos, so the v2 stack runs in mock mode; today `/api/v2` needs a real database (change C4)
+- the frontend wired to `/api/v2`; it currently talks to the v1 graph stack at `/api/v1`
 
 Build order from here:
-1. Commit and push the current branch as the catalog's retrieval wave.
-2. `ConsistencyChecker` (ABC + a starting impl) and `frameworks/` (`Framework` ABC, the two concrete strategies, the registry) can be built in parallel.
-3. Add the four analytical tools to `QueryCatalog` once 2 lands, completing the LLM tool surface.
-4. `ContextBuilder`, `DeltaApplier`, `SocraticPrompter`.
-5. `ConversationOrchestrator` last in module 5, it only wires the others.
-6. `router_v2.py` + DI in module 6.
+1. InMemory v2 repos so `make dev-mock` can serve `/api/v2`, then point the frontend at the v2 turn endpoint.
+2. `ClaudeExtractorV2` behind `ExtractorV2`, the first real LLM call.
+3. an LLM-backed `ConsistencyChecker` for contradiction, character drift, and world-rule checks.
 
 ## The one failure mode to watch
 
@@ -275,20 +275,22 @@ feel the layering if you later batch-process thousands of beats at once.
 
 ```
 app/
-  api/router_v2.py         (not built)   thin handlers
+  api/router_v2.py         (built)       thin handlers, POST /api/v2/conversation/turn
+  core/dependencies_v2.py  (built)       v2 composition root, get_orchestrator
   services/
-    orchestrator.py        (not built)   Mediator
-    context_builder.py     (not built)
-    extractor.py           (built)       ABC + MockExtractor; ClaudeExtractor stub
-    delta_applier.py       (not built)
-    consistency_checker.py (not built)
-    socratic_prompter.py   (not built)
-    query_catalog.py       (NOT BUILT)   the gap, the LLM tool surface
-  frameworks/              (not built)   Strategy + registry
+    orchestrator.py        (built)       Mediator
+    context_builder.py     (built)
+    extractor_v2.py        (built)       LlmContextV2 + ProposedBeat + MockExtractorV2
+    delta_applier.py       (built)
+    consistency_checker.py (built)
+    socratic_prompter.py   (built)
+    query_catalog.py       (built)       the LLM tool surface, 14 tools
+  frameworks/              (built)       Strategy + registry
   repos/                   (built)       Repository, ABC + Sql impl
   domain/
     orm_v2.py              (built)       SQLAlchemy schema
     models_v2.py           (built)       Pydantic DTOs
+    narrative.py           (built)       arc classification + anomaly detection
 ```
 
 Imports point down only. A repo never imports a service, a service never imports the router.

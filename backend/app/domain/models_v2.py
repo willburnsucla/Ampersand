@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
@@ -81,6 +81,13 @@ class Beat(BaseModel):
     status: EntityStatus = "proposed"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @model_validator(mode="after")
+    def _affect_is_atomic(self) -> Beat:
+        # mirrors the beat_affect_atomic db constraint: score both or neither
+        if (self.valence is None) != (self.arousal is None):
+            raise ValueError("valence and arousal must both be set or both omitted")
+        return self
 
 
 # ── First-class project entities (Model 3: base + branch overlay) ─────────────
@@ -159,3 +166,17 @@ class ConversationTurn(BaseModel):
     role: TurnRole
     content: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# orchestrator turn request and result
+
+class TurnRequestV2(BaseModel):
+    project_id: UUID
+    branch_id: UUID
+    content: str = Field(min_length=1, max_length=32000)
+
+
+class TurnResultV2(BaseModel):
+    reply: str
+    beat: Beat | None = None
+    issues: list[Issue] = Field(default_factory=list)

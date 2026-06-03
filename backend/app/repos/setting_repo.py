@@ -80,6 +80,9 @@ class SettingRepo(ABC):
     @abstractmethod
     async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Setting]: ...
 
+    @abstractmethod
+    async def link_to_beat(self, *, beat_id: UUID, setting_id: UUID) -> None: ...
+
 
 class SqlSettingRepo(SettingRepo):
     def __init__(self, session: AsyncSession) -> None:
@@ -206,3 +209,9 @@ class SqlSettingRepo(SettingRepo):
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_to_setting(r) for r in rows]
+
+    async def link_to_beat(self, *, beat_id: UUID, setting_id: UUID) -> None:
+        existing = await self._session.get(BeatSettingOrm, (beat_id, setting_id))
+        if existing is None:
+            self._session.add(BeatSettingOrm(beat_id=beat_id, setting_id=setting_id))
+            await self._session.flush()

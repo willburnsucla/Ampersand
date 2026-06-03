@@ -36,7 +36,9 @@ class Settings(BaseSettings):
     # ── Backend mode ──────────────────────────────────────────────────────────
     # "mock"  → InMemoryGraphRepo + MockExtractor + MockAuthGate (no DB)
     # "real"  → PostgresGraphRepo + ClaudeExtractor + SupabaseAuthGate
-    ampersand_backend_mode: str = Field(default="mock", alias="AMPERSAND_BACKEND_MODE")
+    # defaults to real so a missing/misset env fails closed (auth on), not open.
+    # make dev-mock sets mock explicitly; tests pin mock in conftest.
+    ampersand_backend_mode: str = Field(default="real", alias="AMPERSAND_BACKEND_MODE")
 
     # ── Server ────────────────────────────────────────────────────────────────
     port: int = 8000
