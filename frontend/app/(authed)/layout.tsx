@@ -1,15 +1,22 @@
 'use client'
 
-import { RedirectToSignIn, useAuth } from '@clerk/nextjs'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useUserId } from '@/lib/auth-client'
 import { StoryProvider, useStory } from '@/lib/story-context'
 import { useGraphBootstrap } from '@/lib/use-graph-bootstrap'
 import { Sidebar } from '@/components/nav/sidebar'
 
 export default function AuthedLayout({ children }: { children: React.ReactNode }) {
-  const { isSignedIn, isLoaded } = useAuth()
+  const userId = useUserId()
+  const router = useRouter()
 
-  if (!isLoaded) return null
-  if (!isSignedIn) return <RedirectToSignIn />
+  useEffect(() => {
+    if (userId === null) router.replace('/sign-in')
+  }, [userId, router])
+
+  if (userId === undefined) return null 
+  if (userId === null) return null 
 
   return (
     <StoryProvider>

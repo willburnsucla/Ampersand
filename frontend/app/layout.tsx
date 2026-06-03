@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import { ClerkProvider } from '@clerk/nextjs'
 import localFont from 'next/font/local'
 import { Providers } from '@/components/providers'
 import './globals.css'
@@ -22,14 +21,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ClerkProvider>
-      <html lang="en">
-        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-          <Providers>
-            {children}
-          </Providers>
-        </body>
-      </html>
-    </ClerkProvider>
+    <html lang="en">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <Providers>
+          {children}
+        </Providers>
+      </body>
+    </html>
   )
 }
