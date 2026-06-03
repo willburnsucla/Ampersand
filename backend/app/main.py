@@ -56,9 +56,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # ── Mock mode: override auth to skip real Clerk JWT verification ──────────
+    # ── Mock mode: override auth to skip real Supabase JWT verification ───────
     if settings.is_mock:
-        from app.auth.clerk_gate import UserContext, get_current_user
+        from app.auth.supabase_gate import UserContext, get_current_user
 
         mock_user = UserContext(user_id="mock-user-id", email="dev@ampersand.local")
         app.dependency_overrides[get_current_user] = lambda: mock_user

@@ -16,7 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sse_starlette.sse import EventSourceResponse  # type: ignore[import]
 
-from app.auth.clerk_gate import UserContext, get_current_user
+from app.auth.supabase_gate import UserContext, get_current_user
 from app.broadcast.broadcaster import EventBroadcaster, get_broadcaster
 from app.core.dependencies import get_story_repo
 from app.repos.story_repo import StoryRepo

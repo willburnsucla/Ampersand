@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.auth.clerk_gate import UserContext, get_current_user
+from app.auth.supabase_gate import UserContext, get_current_user
 from app.core.dependencies_v2 import get_orchestrator
 from app.domain.models_v2 import TurnRequestV2, TurnResultV2
 from app.services.orchestrator import ConversationOrchestrator, TurnAuthorizationError

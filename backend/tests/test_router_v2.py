@@ -8,7 +8,7 @@ import uuid
 
 from httpx import ASGITransport, AsyncClient
 
-from app.auth.clerk_gate import UserContext, get_current_user
+from app.auth.supabase_gate import UserContext, get_current_user
 from app.core.db import get_db
 from app.main import app
 from app.repos.branch_repo import SqlBranchRepo

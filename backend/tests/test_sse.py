@@ -1,7 +1,7 @@
 """HTTP test for the SSE ownership guard on GET /api/v1/stories/{id}/events."""
 from httpx import ASGITransport, AsyncClient
 
-from app.auth.clerk_gate import UserContext, get_current_user
+from app.auth.supabase_gate import UserContext, get_current_user
 from app.core.dependencies import get_story_repo
 from app.domain.models import CreateStoryInput
 from app.main import app

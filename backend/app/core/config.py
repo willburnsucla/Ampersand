@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     voyage_api_key: str = ""
 
     # -- Supabase ---------------------------------
+    # Project URL (https://<ref>.supabase.co). Used to fetch the public JWKS
+    # for verifying asymmetric (ES256) JWTs.
+    supabase_url: str = ""
+    # Legacy shared secret for symmetric (HS256) JWTs. Fallback if the project
+    # still signs with HS256.
     supabase_jwt_secret: str = ""
 
 
