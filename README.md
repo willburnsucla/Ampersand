@@ -1,8 +1,62 @@
 # Ampersand
 
-A story-development IDE for writers, with natural language conversational input, and knowledge graph-based out puts. Track characters, beats, themes, world elements, and threads, all branchable like git.
+A story-development tool. The writer talks to it in natural language; it builds a typed **story graph** (beats, characters, themes, settings) that branches like git, and an LLM mid-layer extracts beats from prose, tracks the entities they involve, checks consistency, and analyzes narrative arc.
 
-> **Status:** Scaffold complete. Mock backend runs end-to-end without a database. Real backend (Postgres + Claude + Clerk) wires in over next two weeks.
+> **Status:** The Week-1 scaffold and the query-catalog retrieval wave (#53) are on `main`; `make dev-mock` runs the node/edge backend end to end. The rest of the **mid-layer** (the typed beat/entity graph plus the LLM orchestration over it) is in review as PR #54. Remaining work is wiring the frontend to it, swapping SSE for Supabase Realtime, and dropping in the real Claude calls. Details below.
+
+---
+
+## The one idea that explains the rest
+
+The graph IS the story. The nodes are beats, characters, themes, and settings; the edges are the beat-to-entity links and the branch/sequence lineage. It is stored as typed tables in Postgres (`orm_v2`), not a generic node/edge blob. Each character/theme/setting has base properties plus a per-branch overlay, so an alternate timeline can change a fact without forking the whole entity (base ⊕ overlay merge on read).
+
+The LLM never sees SQL, repos, or the ORM. It sees one thing: the **query catalog**, a fixed menu of named tools (retrieval like `get_beats_in_branch`, analytical like `find_logic_error`). `project_id` and `branch_id` are baked into the catalog at construction from the authenticated request, so the model cannot name another tenant. Everything below the catalog is hidden; everything above it (orchestrator, router) never builds SQL.
+
+---
+
+## Architecture
+
+```
+router_v2.py                 thin HTTP handlers, one per endpoint  (POST /api/v2/conversation/turn)
+   │ Depends()
+ConversationOrchestrator     the mediator: handle_turn() sequences the services, owns nothing else
+   ├── ContextBuilder        gather branch + project state into LlmContextV2
+   ├── Extractor (Mock/Claude) prose -> proposed beat + named entities
+   ├── DeltaApplier          write the proposed beat, resolve/create/link its entities
+   ├── ConsistencyChecker    inline + deep-scan -> Issues
+   └── SocraticPrompter       decide when to ask a clarifying question
+   │
+query_catalog.py             the LLM's only tool surface; tenancy baked in at construction
+FrameworkRegistry            .get("vonnegut") / .get("papalampidi")  -> arc + anomaly analysis over narrative.py
+   │
+Repos (ABC + Sql impl)       Project · Branch · Beat · Character · Theme · Setting · Issue · Conversation  (on orm_v2)
+   │ SQLAlchemy 2.0 async
+Supabase Postgres (orm_v2 schema)
+```
+
+The `docs/mid-layer-architecture.md` doc has the full version: the layer map, the one-turn sequence, the GoF pattern table, and the Parnas change-impact matrix.
+
+---
+
+## What is built, and what is left
+
+**Built (in review on PRs #53 / #54 / #56):**
+- the typed domain (`models_v2.py`, `orm_v2.py`) and all eight repos with base ⊕ overlay merge, branch-scoped reads, and the 3-fork cap
+- `query_catalog.py`: the Facade the LLM sees, 14 tools (10 retrieval + `find_logic_error`, `scan_branch`, `classify_arc`, `framework_anomalies`), Pydantic-derived tool schemas, validating dispatch
+- `frameworks/`: Vonnegut (7 arcs) and Papalampidi (5 turning points) over `narrative.py`, behind a registry
+- `ConsistencyChecker` (heuristic impl today), and the turn services: `ContextBuilder`, `DeltaApplier`, `SocraticPrompter`, and a deterministic `MockExtractorV2`
+- `ConversationOrchestrator` and `router_v2.py` with the v2 DI wiring; a turn round-trips over HTTP against real Postgres
+- Supabase auth gate (mock gate for local dev), branch state machine, the prompt-security module
+- 197 backend tests green
+
+**Left to do:**
+- InMemory v2 repos so `/api/v2` runs in `make dev-mock` with no database (today the v2 path needs Postgres)
+- point a frontend at `/api/v2` (tracked in issue #55)
+- replace the custom SSE broadcaster with Supabase Realtime (subscribe the client to Postgres row changes, gated by RLS)
+- `ClaudeExtractorV2`: the real extraction behind the `Extractor` ABC (the mock stands in)
+- an LLM-backed `ConsistencyChecker` for the semantic checks (contradiction, character drift, world-rule violations)
+- fold `extractor_v2.py` / `dependencies_v2.py` back into `extractor.py` / `dependencies.py` (the plan calls for EXTEND, not separate files)
+- retire the Week-1 node/edge code (`models.py` graph types, `graph_repo.py`, the original `/api/v1` turn endpoint, the SSE broadcaster) once the frontend is on `/v2`
 
 ---
 
@@ -10,251 +64,118 @@ A story-development IDE for writers, with natural language conversational input,
 
 | Layer | Tech |
 |---|---|
-| Frontend | Next.js 14 (App Router), React 18, TypeScript, Tailwind, Zustand, TanStack Query, D3 |
-| Backend | Python 3.11+, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async), Alembic |
-| Database | PostgreSQL 16 + pgvector |
+| Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 async, Alembic |
+| Database | PostgreSQL 16 + pgvector (Supabase); no vector store yet, pgvector slots in behind the catalog later |
 | LLM | Anthropic Claude (`claude-haiku-4-5` default, `claude-sonnet-4-6` escalation) |
-| Embeddings | Voyage AI |
-| Auth | Clerk (JWT verified server-side) |
-| Realtime | Server-Sent Events (one-way, server → client) |
-| Deployment | Vercel (FE), Railway (BE), Neon (DB) |
+| Auth | Supabase JWT, verified server-side (the gate lives in `app/auth/clerk_gate.py`, a stale filename: it is Supabase, not Clerk) |
+| Realtime | Supabase Realtime (planned), replacing the Week-1 custom SSE broadcaster |
+| Frontend | Next.js 14 in `frontend/` (Zustand graph store, TanStack Query, d3); `ez_frontend_clean/` is a separate Vite mockup currently wired to the mock backend |
 
 ---
 
-## Repo layout
-
-```
-ampersand/
-├── backend/           # FastAPI + SQLAlchemy + Alembic
-│   └── app/
-│       ├── core/             # config, db engine, dependency injection
-│       ├── domain/           # Pydantic models, ORM, BranchStateMachine
-│       ├── repos/            # Repository pattern — only place DB is touched
-│       ├── services/         # Extractor (Claude), Embedder, etc.
-│       ├── orchestration/    # ConversationOrchestrator (Mediator)
-│       ├── broadcast/        # EventBroadcaster + SSE endpoint
-│       ├── auth/             # Clerk JWT adapter
-│       ├── api/              # FastAPI route handlers (thin)
-│       └── migrations/       # Alembic
-├── frontend/          # Next.js 14
-│   ├── app/(authed)/         # conversation, inspector, visualizations, branches, export
-│   └── lib/                  # api-client, sse-client, graph-store (Zustand), auth-client
-├── shared/schemas/    # JSON Schema — single source of truth for domain types
-└── docs/
-```
-
----
-
-## Prerequisites
-
-| Tool | Version | Install |
-|---|---|---|
-| Python | 3.11+ | `uv python install 3.11` |
-| `uv` | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Node | 18+ | [nodejs.org](https://nodejs.org) |
-| Docker Desktop | latest | [docker.com](https://www.docker.com/products/docker-desktop/) - (needed only for real-mode DB) |
-
----
-
-## Quickstart — mock mode (no DB, ~2 min)
+## Quickstart (mock mode, no DB)
 
 ```bash
 git clone https://github.com/willburnsucla/Ampersand.git
 cd Ampersand
+make install        # uv sync + npm install
+make dev-mock       # mock backend on :8000, Next.js on :3000
 ```
 
-**1. Install `uv` (Python package manager) if you don't have it:**
+`make dev-mock` sets `AMPERSAND_BACKEND_MODE=mock`, which uses in-memory repos and a `MockAuthGate` that accepts any bearer token. Note: mock mode runs the Week-1 node/edge backend today; the v2 path needs Postgres until the InMemory v2 repos land.
+
+The backend mode now defaults to `real` when the env var is unset, so a misconfigured deploy fails closed (auth on) instead of open. `make dev-mock` and `make dev` both set the mode explicitly, and the test suite pins mock.
+
+Smoke test the Week-1 backend:
+
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env   # load uv into your current shell session
-```
-
-**2. Install dependencies:**
-```bash
-make install   # runs uv sync + npm install
-```
-
-> If `npm install` fails with a peer-dep conflict, run `cd frontend && npm install --legacy-peer-deps` instead.
-
-**3. Set up Clerk keys for the frontend (required even in mock mode):**
-
-Create `frontend/.env.local` with the following (get free keys at [dashboard.clerk.com](https://dashboard.clerk.com)):
-```
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/conversation
-NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/conversation
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-```
-
-**4. Start the servers:**
-```bash
-make dev-mock        # backend on :8000, frontend on :3000
-```
-
-Visit [http://localhost:8000/docs](http://localhost:8000/docs) for the API explorer. The mock backend uses in-memory repos + a deterministic `MockExtractor`, and accepts any auth token.
-
-Smoke test:
-```bash
-curl -s http://localhost:8000/api/v1/healthz
-# → {"status":"ok"}
-
-# Create a story
+curl -s http://localhost:8000/api/v1/healthz                    # {"status":"ok"}
 curl -X POST http://localhost:8000/api/v1/stories \
   -H "Content-Type: application/json" -H "Authorization: Bearer mock" \
   -d '{"title":"My Story"}'
-
-# Send a turn (the MockExtractor recognizes "detective", "wizard", "forest", "chapter", "theme")
-curl -X POST http://localhost:8000/api/v1/conversation/turn \
-  -H "Content-Type: application/json" -H "Authorization: Bearer mock" \
-  -d '{"story_id":"<id>","branch_id":"<id>","content":"Maya is a detective"}'
 ```
 
 ---
 
-## Real mode (Postgres + Claude + Clerk)
+## Real mode (Postgres + Claude + Supabase)
 
-1. Copy `.env.example` to `.env` and fill in:
-   - `ANTHROPIC_API_KEY`
-   - `VOYAGE_API_KEY`
-   - `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_JWT_ISSUER`
-   - Set `AMPERSAND_BACKEND_MODE=real`
+```bash
+cp .env.example .env     # fill ANTHROPIC_API_KEY, SUPABASE_JWT_SECRET, set AMPERSAND_BACKEND_MODE=real
+make db-up               # docker compose up -d db (pgvector/pgvector:pg16)
+make migrate             # alembic upgrade head
+make dev                 # real backend + frontend
+```
 
-2. Start Postgres + run migrations:
-   ```bash
-   make db-up        # docker compose up -d db (pgvector/pgvector:pg16)
-   make migrate      # alembic upgrade head
-   ```
-
-3. Start dev servers:
-   ```bash
-   make dev
-   ```
-
-> Real-mode wiring (Postgres repos, Claude API, Clerk verification) is implemented in Weeks 2–3. The mock mode covers the entire API surface today.
+Real mode requires a non-empty `SUPABASE_JWT_SECRET`; the app refuses to boot without one.
 
 ---
 
 ## Common commands
 
 ```bash
-make help             # list every target
-make install          # uv sync + npm install
-make dev-mock         # mock backend + Next.js (no DB needed)
-make dev              # real backend + Next.js (needs .env + Docker)
-make migrate          # alembic upgrade head
-make migrate-new MSG="add foo"
-make codegen          # regenerate Pydantic + TS types from /shared/schemas/
-make test             # pytest + npm test
-make lint             # ruff + eslint
-make format           # ruff format + prettier
+make help            # list every target
+make install         # uv sync + npm install
+make dev-mock        # mock backend + frontend (no DB)
+make dev             # real backend + frontend (needs .env + Docker)
+make migrate         # alembic upgrade head
+make test            # pytest + npm test
+make lint            # ruff + eslint
+make format          # ruff format + prettier
 ```
 
 ---
 
-## Architectural invariants — read before opening a PR
+## Architectural invariants (read before opening a PR)
 
-These are the rules that will keep our app from becoming a a big ball of mud. We should should reject PRs that break them.
-
-1. **No raw DB access outside `/backend/app/repos/`.** Every read or write goes through a Repository.
-2. **Branch-scoped reads only via `GraphRepo.for_branch(branch_id)`.** The `WHERE branch_id = ANY(branch_tags)` filter is a secret of `GraphRepo` — no other module constructs it.
-3. **Conversation round-trip lives only in `ConversationOrchestrator`.** Route handlers cannot call `Extractor`, `DeltaApplier`, or `EventBroadcaster` directly.
-4. **Every node and edge carries a non-null `provenance_turn_id`.** Enforced at the Pydantic layer and as a DB constraint.
-5. **The Anthropic SDK is imported only inside `app/services/extractor.py`.** No LLM calls anywhere else, ever, including the frontend.
-6. **SSE events ship only via `EventBroadcaster.publish()`.** SSE route handlers subscribe — they never push.
-7. **Mock implementations live in the same package as their real counterparts.** `InMemoryGraphRepo` next to `PostgresGraphRepo`, `MockExtractor` next to `ClaudeExtractor`. This is what makes parallel development possible.
-8. **Client-side delta application is idempotent.** `add_node` is upsert-by-id, `add_edge` is upsert, `set_status`/`update_property` are overwrite. This is what makes the snapshot/SSE race resolve safely.
-9. **The frontend talks to the backend only via `ApiClient`, `SseClient`, or `AuthClient`.** No raw `fetch()` in components, no `EventSource` outside `SseClient`.
+1. **No raw DB access outside `app/repos/`.** Every read and write goes through a repo. Each repo owns its aggregate's ORM, including its beat-entity link table.
+2. **The LLM sees only the query catalog.** No SQL, no repos, no ORM rows reach the model. `project_id` and `branch_id` are baked into the catalog at construction, never a tool argument, so the model cannot reach another tenant.
+3. **The conversation turn lives only in `ConversationOrchestrator`.** Route handlers do not call `Extractor`, `DeltaApplier`, or the checker directly.
+4. **The Anthropic SDK is imported only inside the extractor.** No LLM call anywhere else, including the frontend.
+5. **Every read and write is tenant-scoped.** Reads and writes filter by `owner_id` / `project_id` / `branch_id`; a foreign id returns nothing or raises, it never leaks.
+6. **Mock and real implementations live in the same package.** `MockAuthGate` next to `SupabaseAuthGate`, the InMemory repo next to the Sql repo. This is what lets the team build against mocks in parallel.
+7. **Beat affect is atomic.** `valence` and `arousal` are scored together or not at all, enforced at the model and as a DB constraint.
 
 ---
 
-## Domain types (spec-locked — do not drift)
-
-```ts
-NodeType    = "character" | "beat" | "theme" | "world_element" | "thread"
-NodeStatus  = "proposed"  | "committed" | "rejected"
-BranchState = "active"    | "dormant"   | "committed" | "graveyard"
-
-DeltaOp kinds: add_node | add_edge | update_property | set_status | add_branch_tag
-```
-
-Branch state machine:
+## Domain model
 
 ```
-(creation) ──CREATE──→ active
-active ──SWITCH_TO_DORMANT──→ dormant
-dormant ──SWITCH_TO_ACTIVE──→ active
-active ──COMMIT──→ committed     (terminal)
-active|dormant ──ABANDON──→ graveyard
-graveyard ──REVIVE──→ active
+Project ──< Branch ──< Beat            (Beat.sequence_index_in_branch orders beats within a branch)
+Project ──< Character / Theme / Setting (base properties + per-branch overlay)
+Branch  ──< Branch                      (forks, <= 3 alternates per beat)
+Beat    >──< Character / Theme / Setting (link tables = the graph edges)
+Branch  ──< Issue                       (bot-detected, lifecycle: open -> acknowledged -> resolved)
+Branch  ──< ConversationTurn            (append-only writer/assistant log)
 ```
 
-The single source of truth for these types is `/shared/schemas/*.schema.json`. Pydantic models and TypeScript types are generated from them via `make codegen` — never hand-edit `/backend/app/domain/generated/` or `/frontend/lib/types/generated/`.
+Branch states: `active`, `dormant`, `committed` (terminal), `graveyard` (revivable). Narrative analysis is Vonnegut's 7 arcs plus Papalampidi's 5 turning points plus valence/arousal affect; more frameworks slot in behind the `Framework` interface.
 
----
-
-## Build plan (for the TA)
-
-Roughly 25 tasks (T-001…T-025) organized into 7 streams that build in parallel after a Week 1 foundation. The full plan is at `/Users/burns/.claude/plans/users-burns-downloads-ampersand-initial-stateful-forest.md` (or check the design doc PDF in the team Drive).
-
-| Week | Tasks | What we will ship |
-|---|---|---|
-| 6 | T-001 schemas, T-002 DB, T-003 repos, T-004 mock backend, T-005 branch SM, T-013 auth, T-014 broadcaster | ** Done — `make dev-mock` works end-to-end** |
-| 7 | T-006 Extractor+Embedder, T-007 ContextBuilder, T-008 DeltaApplier, T-009 Exporter, T-010 GapAnalyzer, T-011 QueryService, T-012 VizDataBuilder; T-017–T-019 frontend infra; T-021/T-023/T-024 views | All services + most views, parallel against mock |
-| 8 | T-015 Orchestrator, T-016 routes, T-020 ConversationView, T-022 VisualizationsView | Real backend converges |
-| 9 | T-025 e2e + deploy | Playwright tests + Vercel/Railway/Neon |
-
----
-
-## Working with the codebase — pointers
-
-- **Add a new domain type:** edit `/shared/schemas/`, then `make codegen`. Mirror it in `/backend/app/domain/models.py` and add ORM equivalent in `orm.py`.
-- **Add a new endpoint:** route handler in `/backend/app/api/router.py` (≤10 lines, dispatches to a service). The service goes in `/backend/app/services/`.
-- **Add a new repository method:** edit the abstract base + both `InMemory*` and `Postgres*` impls. Add a unit test that runs against both — they should pass the same suite.
-- **Add a new view:** new `app/(authed)/<route>/page.tsx`. Read graph state via `useGraphStore` selectors — never call `ApiClient` for graph data inside a component.
-- **Using an AI for development:** keep a log of all prompts and outputs, to be submitted with the final project. It is the policy of the course that we maintain transparency in our AI use, to maintain the integrity of this being a course focused around US designing and implementing the software. That being said, using it for working with unfamiliar syntaxes, so long as you are clearly specifying the actions that need to be taken and showing a clear understanding of what you are developing, it should be no issue. 
+The full design lives in `~/.claude/plans/...ampersand-initial-stateful-forest.md` (the Week-7 mid-layer plan) and `docs/mid-layer-architecture.md`.
 
 ---
 
 ## Tests
 
 ```bash
-make test-backend     # pytest — covers BranchStateMachine, repos, services
-make test-frontend    # npm test — components + stores
-make test             # both
+make test-backend     # pytest (197 green): repos, services, the catalog, the orchestrator, the turn over HTTP
+make test-frontend    # npm test
 ```
 
-CI runs lint → unit → integration → e2e (Playwright) on every PR.
-
----
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| `make migrate` errors with `connection refused` | `make db-up` first; wait for healthcheck |
-| `make dev` fails with `pgvector` error | Use the `pgvector/pgvector:pg16` image (already in `docker-compose.yml`); `make db-destroy && make db-up && make migrate` to recreate |
-| `make codegen` can't find `datamodel-codegen` | `cd backend && uv sync` first |
-| `uv: command not found` after installing uv | Run `source $HOME/.local/bin/env` to load uv into your current shell session |
-| Frontend `npm install` peer-dep conflict | Run `cd frontend && npm install --legacy-peer-deps` |
-| Frontend Clerk error: `Missing publishableKey` | Create `frontend/.env.local` with your Clerk public key — required even in mock mode (see Quickstart step 3) |
-| Mock backend doesn't return a node for my message | The MockExtractor matches on the keywords `detective`, `wizard`, `forest`, `chapter`, `theme`; otherwise it returns a generic Character |
-| `401 Unauthorized` in mock mode | Send any value as `Authorization: Bearer <anything>` — `MockAuthGate` accepts any token but the `HTTPBearer` dep still requires the header |
+Backend tests run against a throwaway Postgres via testcontainers, so Docker must be running for `make test-backend`.
 
 ---
 
 ## Team
 
-| Role | Person |
+| Person | GitHub |
 |---|---|
-| Team Member | William Burns ([@willburnsucla](https://github.com/willburnsucla)) |
-| Team Member | Gabriel Sanchez _([@GSANC10](https://github.com/GSANC10)_ |
-| Team Member | Thomas McConnell _(fill in ur Github :))_ |
-| Team Member | Lam Luong _(fill in ur Github :))_ |
-| Team Member | Emily Zhang _(fill in ur Github :))_ |
-| Team Member | Ashley Wu _(fill in ur Github :))_ |
-| Team Member | Hana Chloe Yoon  _(fill in ur Github :))_ |
-| Course | CS130 |
+| William Burns | [@willburnsucla](https://github.com/willburnsucla) |
+| Gabriel Sanchez | [@GSANC10](https://github.com/GSANC10) |
+| Thomas McConnell | [@thomasmcconnell33](https://github.com/thomasmcconnell33) |
+| Lam Luong | [@lamluongg](https://github.com/lamluongg) |
+| Emily Zhang | [@emilyzhang625](https://github.com/emilyzhang625) |
+| Ashley Wu | [@ashleyjwu](https://github.com/ashleyjwu) |
+| Hana Chloe Yoon | [@cloyooni](https://github.com/cloyooni) |
+| Eric Zhou | [@zitongzhoueric](https://github.com/zitongzhoueric) |
 
-PRs welcome. Read the architectural invariants first.
+CS130. PRs welcome; read the invariants first.
