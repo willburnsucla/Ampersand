@@ -1,16 +1,26 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { NextResponse, type NextRequest } from 'next/server'
+import { updateSession } from '@/lib/supabase/middleware'
 
-const isPublicRoute = createRouteMatcher([
-  '/sign-in(.*)',
-  '/sign-up(.*)',
-  '/api/backend(.*)',  // backend proxy routes are unauthenticated at the Next.js layer
-])
+// Paths reachable without a session. Everything else requires login.
+const PUBLIC_PATHS = ['/sign-in', '/api/backend']
 
-export default clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) {
-    await auth.protect()
+export default async function middleware(request: NextRequest) {
+  // Refresh the session cookie and get the server validated user.
+  const { response, user } = await updateSession(request)
+
+  const { pathname } = request.nextUrl
+  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+
+  // Unauthenticated + protected path -> bounce to sign in.
+  if (!user && !isPublic) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/sign-in'
+    return NextResponse.redirect(url)
   }
-})
+
+  // Return the cookie carrying response (carries the refreshed Set-Cookie).
+  return response
+}
 
 export const config = {
   matcher: [

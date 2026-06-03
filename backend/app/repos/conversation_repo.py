@@ -1,79 +1,94 @@
-"""
-ConversationRepo — T-003. Append-only log of conversation turns.
+"""ConversationTurnRepo: append-only log of writer/assistant messages, scoped to a branch.
+
+Only this module touches ConversationTurnOrm. It returns Pydantic ConversationTurns,
+never ORM objects, so the persistence layer stays hidden from everything downstream.
 """
 from __future__ import annotations
 
-import uuid
 from abc import ABC, abstractmethod
-from copy import deepcopy
 from datetime import datetime
 from uuid import UUID
 
-from app.domain.models import ConversationTurn
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.domain.models_v2 import ConversationTurn
+from app.domain.orm_v2 import ConversationTurnOrm
 
 
-class ConversationRepo(ABC):
+def _to_turn(row: ConversationTurnOrm) -> ConversationTurn:
+    return ConversationTurn(
+        id=row.id,
+        branch_id=row.branch_id,
+        role=row.role,
+        content=row.content,
+        created_at=row.created_at,
+    )
+
+
+class ConversationTurnRepo(ABC):
     @abstractmethod
-    async def append_turn(self, turn: ConversationTurn) -> ConversationTurn: ...
+    async def append_turn(self, *, branch_id: UUID, role: str, content: str) -> ConversationTurn: ...
 
     @abstractmethod
     async def list_turns(
-        self,
-        branch_id: UUID,
-        *,
-        limit: int = 50,
-        before: datetime | None = None,
-    ) -> list[ConversationTurn]:
-        """Return turns for branch_id, newest-first, up to limit. Optionally before a cursor."""
+        self, branch_id: UUID, *, limit: int = 50, before: datetime | None = None,
+    ) -> list[ConversationTurn]: ...
 
     @abstractmethod
     async def get_turn(self, turn_id: UUID) -> ConversationTurn | None: ...
 
 
-class InMemoryConversationRepo(ConversationRepo):
+class SqlConversationTurnRepo(ConversationTurnRepo):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def append_turn(self, *, branch_id: UUID, role: str, content: str) -> ConversationTurn:
+        row = ConversationTurnOrm(
+            branch_id=branch_id,
+            role=role,
+            content=content,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        await self._session.refresh(row)
+        return _to_turn(row)
+
+    # Fetch many turns in a branch with the newest first, capped at 50
+    # This is used to show chat history
+    async def list_turns(
+        self, branch_id: UUID, *, limit: int = 50, before: datetime | None = None,
+    ) -> list[ConversationTurn]:
+        stmt = select(ConversationTurnOrm).where(ConversationTurnOrm.branch_id == branch_id)
+        if before is not None:
+            stmt = stmt.where(ConversationTurnOrm.created_at < before)
+        stmt = stmt.order_by(ConversationTurnOrm.created_at.desc()).limit(limit)
+
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_turn(r) for r in rows]
+
+    # Fetch a turn by id
+    async def get_turn(self, turn_id: UUID) -> ConversationTurn | None:
+        stmt = select(ConversationTurnOrm).where(ConversationTurnOrm.id == turn_id)
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return _to_turn(row) if row is not None else None
+
+
+class InMemoryConversationRepo:
+    """Mock implementation for dev-mock mode — no DB needed."""
+
     def __init__(self) -> None:
         self._turns: list[ConversationTurn] = []
 
-    async def append_turn(self, turn: ConversationTurn) -> ConversationTurn:
-        self._turns.append(deepcopy(turn))
-        return deepcopy(turn)
+    async def append_turn(self, turn) -> None:  # type: ignore[override]
+        self._turns.append(turn)
 
-    async def list_turns(
-        self,
-        branch_id: UUID,
-        *,
-        limit: int = 50,
-        before: datetime | None = None,
-    ) -> list[ConversationTurn]:
-        turns = [t for t in self._turns if t.branch_id == branch_id]
-        if before is not None:
-            turns = [t for t in turns if t.created_at < before]
-        # newest first
-        turns.sort(key=lambda t: t.created_at, reverse=True)
-        return [deepcopy(t) for t in turns[:limit]]
+    async def list_turns(self, branch_id: UUID, *, limit: int = 50, before=None):
+        return [t for t in self._turns if t.branch_id == branch_id][-limit:]
 
-    async def get_turn(self, turn_id: UUID) -> ConversationTurn | None:
-        for turn in self._turns:
-            if turn.id == turn_id:
-                return deepcopy(turn)
-        return None
-
-    def reset(self) -> None:
-        self._turns.clear()
+    async def get_turn(self, turn_id: UUID):
+        return next((t for t in self._turns if t.id == turn_id), None)
 
 
-class PostgresConversationRepo(ConversationRepo):
-    async def append_turn(self, turn: ConversationTurn) -> ConversationTurn:
-        raise NotImplementedError
-
-    async def list_turns(
-        self,
-        branch_id: UUID,
-        *,
-        limit: int = 50,
-        before: datetime | None = None,
-    ) -> list[ConversationTurn]:
-        raise NotImplementedError
-
-    async def get_turn(self, turn_id: UUID) -> ConversationTurn | None:
-        raise NotImplementedError
+# Alias that router.py expects
+ConversationRepo = InMemoryConversationRepo

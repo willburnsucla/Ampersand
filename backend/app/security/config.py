@@ -1,5 +1,5 @@
 """
-Security configuration — thresholds, patterns, token budgets.
+Security configuration, thresholds, patterns, token budgets.
 
 Configurable by environment; defaults are balanced (not overly aggressive).
 """

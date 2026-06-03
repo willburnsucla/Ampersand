@@ -16,7 +16,7 @@ from app.core.config import settings  # noqa: E402
 from app.core.db import Base  # noqa: E402
 
 # Import all ORM models so autogenerate picks them up
-import app.domain.orm  # noqa: E402, F401
+import app.domain.orm_v2  # noqa: E402, F401
 
 # ── Alembic config ────────────────────────────────────────────────────────────
 config = context.config

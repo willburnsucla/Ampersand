@@ -1,20 +1,8 @@
-"""
-PromptSanitizer — Core text cleaning logic (minimalist approach for creative writing).
+"""Core text cleaning for prompts, minimalist for creative writing.
 
-Philosophy: We preserve storytelling flexibility while removing only essential threats:
-  - Remove control characters (null bytes, etc.) — true security risk
-  - Normalize Unicode (homograph attacks) — true security risk
-  - DO NOT escape quotes/apostrophes — breaks natural dialogue and storytelling
-  
-Quote/apostrophe escaping should happen at the Extractor level using proper JSON encoding,
-not here in the sanitizer. This keeps text natural for authors while ensuring safe LLM prompts.
-
-Methods:
-  - sanitize_text(text: str) -> str: Remove control chars, normalize Unicode
-  - remove_control_characters(text: str) -> str: Strip non-printable chars
-  - escape_dangerous_chars(text: str) -> str: [DISABLED] Only called explicitly if needed
-  - normalize_unicode(text: str) -> str: NFKC normalization (prevent homograph attacks)
-  - truncate(text: str, max_length: int) -> str: Enforce size limit
+Strips control characters and normalizes Unicode (NFKC) so homograph attacks
+get folded out. Quote and apostrophe escaping happens at the Extractor level
+via JSON encoding, not here, so dialogue stays readable for the writer.
 """
 from __future__ import annotations
 
@@ -46,19 +34,9 @@ class PromptSanitizer:
         max_length: int = MAX_USER_MESSAGE_LENGTH,
         normalize: bool = True,
     ) -> str:
-        """
-        End-to-end sanitization: remove control chars, normalize Unicode, truncate.
-        
-        NOTE: We do NOT escape quotes/apostrophes here (too aggressive for storytelling).
-        The Extractor should use proper JSON/prompt encoding when building the actual LLM prompt.
+        """End-to-end sanitization, removes control chars, normalizes Unicode, truncates to max_length.
 
-        Args:
-            text: Raw user input
-            max_length: Max output length (default: MAX_USER_MESSAGE_LENGTH)
-            normalize: Whether to normalize Unicode (default: True)
-
-        Returns:
-            Sanitized text, safe for LLM consumption
+        Quotes and apostrophes are intentionally preserved; the Extractor JSON encodes them at prompt build time.
         """
         if not text:
             return text
@@ -91,33 +69,6 @@ class PromptSanitizer:
             logger.debug(f"Removed {len(text) - len(result)} control characters")
 
         return result
-
-    def escape_dangerous_chars(self, text: str) -> str:
-        """
-        Escape quotes and backslashes (DISABLED for storytelling flexibility).
-        
-        This method is kept for backward compatibility but is NOT used by sanitize_text().
-        If needed, call explicitly and only when you're sure escaping is safe.
-        
-        Quote escaping is too aggressive for creative writing dialogue (e.g., "Don't worry," she said.)
-        The Extractor should use proper JSON encoding instead.
-        """
-        if not text:
-            return text
-
-        # Escape backslash first (so we don't double-escape)
-        text = text.replace("\\", "\\\\")
-
-        # Escape double quotes
-        text = text.replace('"', '\\"')
-
-        # Escape single quotes (for shell safety)
-        text = text.replace("'", "\\'")
-
-        if VERBOSE_LOGGING:
-            logger.debug("Escaped dangerous characters (manual call)")
-
-        return text
 
     def normalize_unicode(self, text: str) -> str:
         """

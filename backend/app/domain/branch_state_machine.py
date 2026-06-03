@@ -1,14 +1,14 @@
 """
-BranchStateMachine — T-005.
+BranchStateMachine, T-005.
 
 Pure logic module, no I/O, no DB. Validates which branch transitions are legal.
 Consumers (BranchRepo, route handlers) own persistence; this module only validates.
 
 Branch states (spec-locked):
-  active    — writer is actively working on this branch
-  dormant   — parked but can be revived
-  committed — terminal; cannot transition further
-  graveyard — abandoned; can be revived to active
+  active, writer is actively working on this branch
+  dormant, parked but can be revived
+  committed, terminal, cannot transition further
+  graveyard, abandoned, can be revived to active
 
 Allowed transitions:
   (creation) → active                 via CREATE
@@ -42,7 +42,7 @@ _ALLOWED: dict[str, set[BranchEvent]] = {
     "active":    {BranchEvent.SWITCH_TO_DORMANT, BranchEvent.COMMIT, BranchEvent.ABANDON},
     "dormant":   {BranchEvent.SWITCH_TO_ACTIVE, BranchEvent.ABANDON},
     "graveyard": {BranchEvent.REVIVE},
-    "committed": set(),  # terminal state — no outgoing transitions
+    "committed": set(),  # terminal state, no outgoing transitions
 }
 
 # Result of each valid (from_state, event) pair
@@ -57,7 +57,7 @@ _NEXT_STATE: dict[tuple[str, BranchEvent], str] = {
 
 
 class BranchStateMachine:
-    """Static helper — no instance state."""
+    """Static helper, no instance state."""
 
     @staticmethod
     def can_transition(current_state: str, event: BranchEvent) -> bool:
@@ -75,7 +75,7 @@ class BranchStateMachine:
             allowed = _ALLOWED.get(current_state, set())
             if not allowed:
                 raise InvalidTransitionError(
-                    f"Branch in state '{current_state}' is terminal — no transitions allowed."
+                    f"Branch in state '{current_state}' is terminal, no transitions allowed."
                 )
             raise InvalidTransitionError(
                 f"Cannot transition branch from '{current_state}' via '{event.value}'. "

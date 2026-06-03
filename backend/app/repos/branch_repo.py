@@ -1,80 +1,160 @@
+"""BranchRepo: CRUD + state transitions on branches, scoped to a project.
+
+Only this module touches BranchOrm. Returns Pydantic Branches, never ORM objects.
 """
-BranchRepo — T-003. CRUD + state transitions for branches.
-Delegates state machine validation to BranchStateMachine.
-"""
+
 from __future__ import annotations
 
-import uuid
 from abc import ABC, abstractmethod
-from copy import deepcopy
-from datetime import datetime
 from uuid import UUID
 
-from app.domain.branch_state_machine import BranchEvent, BranchStateMachine
-from app.domain.models import Branch, CreateBranchInput
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.branch_state_machine import BranchEvent, BranchStateMachine
+from app.domain.models_v2 import Branch
+from app.domain.orm_v2 import BranchOrm
+
+
+def _to_branch(row: BranchOrm) -> Branch:
+    return Branch(
+        id=row.id,
+        project_id=row.project_id,
+        parent_branch_id=row.parent_branch_id,
+        created_from_beat_id=row.created_from_beat_id,
+        name=row.name,
+        state=row.state,
+        declared_arc=row.declared_arc,
+        created_at=row.created_at,
+    )
 
 class BranchRepo(ABC):
     @abstractmethod
-    async def create(self, input: CreateBranchInput) -> Branch: ...
+    async def create(
+        self, 
+        *,
+        project_id: UUID,
+        name: str | None = None,
+        parent_branch_id: UUID | None = None,
+        created_from_beat_id: UUID | None = None,
+        declared_arc: str | None = None,
+    ) -> Branch: ...
 
     @abstractmethod
-    async def get(self, branch_id: UUID) -> Branch | None: ...
+    async def get(self, branch_id: UUID, *, project_id: UUID) -> Branch | None: ...
 
     @abstractmethod
-    async def list(self, *, story_id: UUID) -> list[Branch]: ...
+    async def list(self, *, project_id: UUID) -> list[Branch]: ...
 
     @abstractmethod
-    async def transition(self, branch_id: UUID, event: BranchEvent) -> Branch:
-        """Apply a state transition. Raises InvalidTransitionError if disallowed."""
+    async def transition(self, branch_id: UUID, event: BranchEvent, *, project_id: UUID) -> Branch: ...
 
+    @abstractmethod
+    async def create_fork(
+        self,
+        *,
+        project_id: UUID,
+        parent_branch_id: UUID,
+        created_from_beat_id: UUID,
+        name: str | None = None,
+        declared_arc: str | None = None,
+    ) -> Branch: ...
 
-class InMemoryBranchRepo(BranchRepo):
-    def __init__(self) -> None:
-        self._branches: dict[UUID, Branch] = {}
+class SqlBranchRepo(BranchRepo):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
 
-    async def create(self, input: CreateBranchInput) -> Branch:
-        branch = Branch(
-            id=uuid.uuid4(),
-            story_id=input.story_id,
-            parent_branch_id=input.parent_branch_id,
-            state="active",
-            created_from_beat_id=input.created_from_beat_id,
-            name=input.name,
-            created_at=datetime.utcnow(),
+    async def create(
+        self,
+        *,
+        project_id: UUID,
+        name: str | None = None,
+        parent_branch_id: UUID | None = None,
+        created_from_beat_id: UUID | None = None,
+        declared_arc: str | None = None,
+    ) -> Branch:
+        row = BranchOrm(
+            project_id=project_id,
+            name=name,
+            parent_branch_id=parent_branch_id,
+            created_from_beat_id=created_from_beat_id,
+            declared_arc=declared_arc,
         )
-        self._branches[branch.id] = branch
-        return deepcopy(branch)
+        self._session.add(row)
+        await self._session.flush()
+        await self._session.refresh(row)
+        return _to_branch(row)
 
-    async def get(self, branch_id: UUID) -> Branch | None:
-        branch = self._branches.get(branch_id)
-        return deepcopy(branch) if branch else None
+    async def get(self, branch_id: UUID, *, project_id: UUID) -> Branch | None:
+        stmt = select(BranchOrm).where(
+            BranchOrm.id == branch_id,
+            BranchOrm.project_id == project_id,
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return _to_branch(row) if row is not None else None
 
-    async def list(self, *, story_id: UUID) -> list[Branch]:
-        return [deepcopy(b) for b in self._branches.values() if b.story_id == story_id]
+    async def list(self, *, project_id: UUID) -> list[Branch]:
+        stmt = (
+            select(BranchOrm)
+            .where(BranchOrm.project_id == project_id)
+            .order_by(BranchOrm.created_at)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_to_branch(r) for r in rows]
 
-    async def transition(self, branch_id: UUID, event: BranchEvent) -> Branch:
-        branch = self._branches.get(branch_id)
-        if branch is None:
-            raise KeyError(f"Branch {branch_id} not found")
-        # Raises InvalidTransitionError if disallowed
-        new_state = BranchStateMachine.next_state(branch.state, event)
-        branch.state = new_state  # type: ignore[assignment]
-        return deepcopy(branch)
+    async def transition(self, branch_id: UUID, event: BranchEvent, *, project_id: UUID) -> Branch:
+        stmt = select(BranchOrm).where(
+            BranchOrm.id == branch_id,
+            BranchOrm.project_id == project_id,
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        if row is None:
+            raise ValueError(f"branch {branch_id} not found in this project")
+        # next_state raises InvalidTransitionError if illegal let it propagate
+        # note transition doesn't validate the transition itself, but rather delegates that to BranchStateMachine
+        row.state = BranchStateMachine.next_state(row.state, event)
+        await self._session.flush()
+        await self._session.refresh(row)
+        return _to_branch(row)
 
-    def reset(self) -> None:
-        self._branches.clear()
+    async def create_fork(
+        self,
+        *,
+        project_id: UUID,
+        parent_branch_id: UUID,
+        created_from_beat_id: UUID,
+        name: str | None = None,
+        declared_arc: str | None = None,
+    ) -> Branch:
+        # tenancy check, parent must live in this project
+        parent_stmt = select(BranchOrm.id).where(
+            BranchOrm.id == parent_branch_id,
+            BranchOrm.project_id == project_id,
+        )
+        if (await self._session.execute(parent_stmt)).scalar_one_or_none() is None:
+            raise ValueError(f"parent branch {parent_branch_id} not found in this project")
 
+        # fork cap, at most 3 alternates per fork beat per project. not atomic, a
+        # concurrent insert could slip a 4th in before this one commits. accepted
+        # for MVP, same trade as the beat sequence index race.
+        count_stmt = select(func.count()).select_from(BranchOrm).where(
+            BranchOrm.created_from_beat_id == created_from_beat_id,
+            BranchOrm.project_id == project_id,
+        )
+        existing = (await self._session.execute(count_stmt)).scalar_one()
+        if existing >= 3:
+            raise ValueError(
+                f"beat {created_from_beat_id} already has {existing} forks, cap is 3"
+            )
 
-class PostgresBranchRepo(BranchRepo):
-    async def create(self, input: CreateBranchInput) -> Branch:
-        raise NotImplementedError
-
-    async def get(self, branch_id: UUID) -> Branch | None:
-        raise NotImplementedError
-
-    async def list(self, *, story_id: UUID) -> list[Branch]:
-        raise NotImplementedError
-
-    async def transition(self, branch_id: UUID, event: BranchEvent) -> Branch:
-        raise NotImplementedError
+        row = BranchOrm(
+            project_id=project_id,
+            name=name,
+            parent_branch_id=parent_branch_id,
+            created_from_beat_id=created_from_beat_id,
+            declared_arc=declared_arc,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        await self._session.refresh(row)
+        return _to_branch(row)

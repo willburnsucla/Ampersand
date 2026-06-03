@@ -24,15 +24,21 @@ class Settings(BaseSettings):
     # ── Voyage AI (embeddings) ────────────────────────────────────────────────
     voyage_api_key: str = ""
 
-    # ── Clerk ─────────────────────────────────────────────────────────────────
-    clerk_secret_key: str = ""
-    clerk_publishable_key: str = ""
-    clerk_jwt_issuer: str = ""
+    # -- Supabase ---------------------------------
+    # Project URL (https://<ref>.supabase.co). Used to fetch the public JWKS
+    # for verifying asymmetric (ES256) JWTs.
+    supabase_url: str = ""
+    # Legacy shared secret for symmetric (HS256) JWTs. Fallback if the project
+    # still signs with HS256.
+    supabase_jwt_secret: str = ""
+
 
     # ── Backend mode ──────────────────────────────────────────────────────────
     # "mock"  → InMemoryGraphRepo + MockExtractor + MockAuthGate (no DB)
-    # "real"  → PostgresGraphRepo + ClaudeExtractor + ClerkAuthGate
-    ampersand_backend_mode: str = Field(default="mock", alias="AMPERSAND_BACKEND_MODE")
+    # "real"  → PostgresGraphRepo + ClaudeExtractor + SupabaseAuthGate
+    # defaults to real so a missing/misset env fails closed (auth on), not open.
+    # make dev-mock sets mock explicitly; tests pin mock in conftest.
+    ampersand_backend_mode: str = Field(default="real", alias="AMPERSAND_BACKEND_MODE")
 
     # ── Server ────────────────────────────────────────────────────────────────
     port: int = 8000

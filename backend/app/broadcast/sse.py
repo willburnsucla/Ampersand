@@ -16,8 +16,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sse_starlette.sse import EventSourceResponse  # type: ignore[import]
 
-from app.auth.clerk_gate import UserContext, get_current_user
+from app.auth.supabase_gate import UserContext, get_current_user
 from app.broadcast.broadcaster import EventBroadcaster, get_broadcaster
+from app.core.dependencies import get_story_repo
+from app.repos.story_repo import StoryRepo
 
 sse_router = APIRouter(tags=["sse"])
 
@@ -33,14 +35,16 @@ async def story_events(
     story_id: UUID,
     broadcaster: EventBroadcaster = Depends(get_broadcaster),
     current_user: UserContext = Depends(get_current_user),
+    story_repo: StoryRepo = Depends(get_story_repo),
 ) -> EventSourceResponse:
     """
     Subscribe to real-time GraphDeltaEvents for story_id.
-    Only events for the requesting user's story are delivered.
+    Only the story's owner may subscribe; anyone else gets a 404.
     Each event carries a monotonic sequence_number per (story, branch).
     """
-    # TODO (T-016): Verify current_user owns story_id — add StoryRepo check here
-    # For now in mock mode any authenticated user can subscribe to any story.
+    if await story_repo.get(story_id, owner_id=current_user.user_id) is None:
+        # 404 not 403, so we do not leak which story ids exist
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="story not found")
 
     async def event_generator():
         subscription = await broadcaster.subscribe(story_id)

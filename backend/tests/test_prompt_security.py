@@ -39,15 +39,6 @@ class TestPromptSanitizer:
         assert "\t" in result  # Tab should be kept
         assert "\n" in result  # Newline should be kept
 
-    def test_escape_dangerous_chars(self, sanitizer: PromptSanitizer) -> None:
-        """escape_dangerous_chars method should work when called explicitly."""
-        text = r'Say "hello" and I\'ll\help'
-        result = sanitizer.escape_dangerous_chars(text)
-        
-        assert '\\"' in result  # " should be escaped
-        assert "\\'" in result  # ' should be escaped
-        assert "\\\\" in result  # \ should be escaped
-
     def test_normalize_unicode(self, sanitizer: PromptSanitizer) -> None:
         """Unicode should be normalized to NFKC."""
         # Using a composed character that normalizes differently

@@ -50,6 +50,7 @@ dev-dependencies = [
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
     "mypy>=1.10",
+    "testcontainers[postgres]>=4.14.2",
 ]
 
 [build-system]
@@ -66,8 +67,16 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# fastapi puts Depends() in argument defaults by design
+"app/api/*" = ["B008"]
+"app/broadcast/sse.py" = ["B008"]
+"app/core/dependencies*.py" = ["B008"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 
 [tool.mypy]
