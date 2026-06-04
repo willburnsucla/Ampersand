@@ -80,3 +80,35 @@ class SqlProjectRepo(ProjectRepo):
         await self._session.flush()
         await self._session.refresh(row)
         return _to_project(row)
+
+
+class InMemoryProjectRepo(ProjectRepo):
+    """In-memory ProjectRepo for mock mode. Stores Pydantic Projects keyed by id."""
+
+    def __init__(self) -> None:
+        self._projects: dict[UUID, Project] = {}
+
+    async def create(self, *, title: str, owner_id: str) -> Project:
+        project = Project(owner_id=owner_id, title=title)
+        self._projects[project.id] = project
+        return project.model_copy(deep=True)
+
+    async def get(self, project_id: UUID, *, owner_id: str) -> Project | None:
+        row = self._projects.get(project_id)
+        if row is None or row.owner_id != owner_id:
+            return None
+        return row.model_copy(deep=True)
+
+    async def list(self, *, owner_id: str) -> list[Project]:
+        rows = [p for p in self._projects.values() if p.owner_id == owner_id]
+        # sql orders by updated_at desc; reversed insertion is the in-memory stand-in
+        return [p.model_copy(deep=True) for p in reversed(rows)]
+
+    async def set_primary_branch(
+        self, project_id: UUID, branch_id: UUID, *, owner_id: str
+    ) -> Project:
+        row = self._projects.get(project_id)
+        if row is None or row.owner_id != owner_id:
+            raise ValueError(f"project {project_id} not found for this owner")
+        row.primary_branch_id = branch_id
+        return row.model_copy(deep=True)

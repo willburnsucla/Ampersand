@@ -215,3 +215,77 @@ class SqlSettingRepo(SettingRepo):
         if existing is None:
             self._session.add(BeatSettingOrm(beat_id=beat_id, setting_id=setting_id))
             await self._session.flush()
+
+
+class InMemorySettingRepo(SettingRepo):
+    """In-memory SettingRepo for mock mode. Stores settings, overlays, and links."""
+
+    def __init__(self) -> None:
+        self._settings: dict[UUID, Setting] = {}
+        self._overlays: dict[tuple[UUID, UUID], dict] = {}  # (setting_id, branch_id) -> overlay
+        self._links: set[tuple[UUID, UUID]] = set()  # (beat_id, setting_id)
+
+    async def create(
+        self, *, project_id: UUID, name: str, base_properties: dict | None = None
+    ) -> Setting:
+        setting = Setting(
+            project_id=project_id,
+            name=name,
+            base_properties=base_properties if base_properties is not None else {},
+        )
+        self._settings[setting.id] = setting
+        return setting.model_copy(deep=True)
+
+    async def get(self, setting_id: UUID, *, project_id: UUID) -> Setting | None:
+        row = self._settings.get(setting_id)
+        if row is None or row.project_id != project_id:
+            return None
+        return row.model_copy(deep=True)
+
+    async def list(self, *, project_id: UUID) -> list[Setting]:
+        rows = [s for s in self._settings.values() if s.project_id == project_id]
+        return [s.model_copy(deep=True) for s in rows]
+
+    async def set_base_properties(
+        self, setting_id: UUID, base_properties: dict, *, project_id: UUID
+    ) -> Setting:
+        row = self._settings.get(setting_id)
+        if row is None or row.project_id != project_id:
+            raise ValueError(f"setting {setting_id} not found in this project")
+        row.base_properties = base_properties
+        return row.model_copy(deep=True)
+
+    async def upsert_overlay(
+        self, *, setting_id: UUID, branch_id: UUID, project_id: UUID, overlay_properties: dict
+    ) -> None:
+        base = self._settings.get(setting_id)
+        if base is None or base.project_id != project_id:
+            raise ValueError(f"setting {setting_id} not found in this project")
+        # unlike sql we do not also check the branch lives in the project (no sibling
+        # store here); the orchestrator's _authorize covers branch validity
+        self._overlays[(setting_id, branch_id)] = dict(overlay_properties)
+
+    async def get_view(
+        self, setting_id: UUID, branch_id: UUID, *, project_id: UUID
+    ) -> SettingView | None:
+        base = self._settings.get(setting_id)
+        if base is None or base.project_id != project_id:
+            return None
+        merged = dict(base.base_properties)
+        overlay = self._overlays.get((setting_id, branch_id))
+        if overlay is not None:
+            merged.update(overlay)
+        return SettingView(
+            id=base.id, name=base.name, properties=merged, resolved_in_branch=branch_id
+        )
+
+    async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Setting]:
+        rows = [
+            s
+            for s in self._settings.values()
+            if s.project_id == project_id and (beat_id, s.id) in self._links
+        ]
+        return [s.model_copy(deep=True) for s in rows]
+
+    async def link_to_beat(self, *, beat_id: UUID, setting_id: UUID) -> None:
+        self._links.add((beat_id, setting_id))

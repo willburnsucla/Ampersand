@@ -9,7 +9,7 @@ import uuid
 from httpx import ASGITransport, AsyncClient
 
 from app.auth.supabase_gate import UserContext, get_current_user
-from app.core.db import get_db
+from app.core.dependencies_v2 import get_v2_session
 from app.main import app
 from app.repos.branch_repo import SqlBranchRepo
 from app.repos.character_repo import SqlCharacterRepo
@@ -17,7 +17,9 @@ from app.repos.project_repo import SqlProjectRepo
 
 
 def _wire_app(db_session, *, owner: str) -> AsyncClient:
-    app.dependency_overrides[get_db] = lambda: db_session
+    # override the v2 session seam so the orchestrator wires sql repos on the test
+    # session (mock mode would otherwise route to the process-level InMemory repos)
+    app.dependency_overrides[get_v2_session] = lambda: db_session
     app.dependency_overrides[get_current_user] = lambda: UserContext(user_id=owner)
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
