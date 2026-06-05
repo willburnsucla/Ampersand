@@ -1,7 +1,10 @@
 import type {
   Beat,
   Branch,
+  Character,
+  Issue,
   Project,
+  Theme,
   TurnRequest,
   TurnResult,
 } from "./types";
@@ -9,7 +12,8 @@ import type {
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const API_V2_BASE = `${BASE_URL}/api/v2`;
 
-// TODO: replace with real JWT from Clerk when auth is wired in
+// In mock mode the backend accepts any token. When Clerk is wired in,
+// replace this with a real JWT from your auth client.
 const AUTH_TOKEN = "mock";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -53,6 +57,22 @@ export async function createBranch(input: {
 
 export async function listBeats(projectId: string, branchId: string): Promise<Beat[]> {
   return request<Beat[]>(`/projects/${projectId}/branches/${branchId}/beats`);
+}
+
+export async function listBranches(projectId: string): Promise<Branch[]> {
+  return request<Branch[]>(`/projects/${projectId}/branches`);
+}
+
+export async function listCharacters(projectId: string): Promise<Character[]> {
+  return request<Character[]>(`/projects/${projectId}/characters`);
+}
+
+export async function listThemes(projectId: string): Promise<Theme[]> {
+  return request<Theme[]>(`/projects/${projectId}/themes`);
+}
+
+export async function listIssues(projectId: string, branchId: string): Promise<Issue[]> {
+  return request<Issue[]>(`/projects/${projectId}/branches/${branchId}/issues`);
 }
 
 export async function sendTurn(body: TurnRequest): Promise<TurnResult> {

@@ -1,4 +1,5 @@
-// Mirrors backend/app/domain/models_v2.py — keep in sync, no extra fields
+// Types derived from backend/app/domain/models_v2.py
+// Do not add fields that don't exist in the backend models
 
 export interface Project {
   id: string;
@@ -42,4 +43,36 @@ export interface Beat {
   status: "proposed" | "committed" | "rejected";
   created_at: string;
   updated_at: string;
+}
+
+export interface Character {
+  id: string;
+  project_id: string;
+  name: string;
+  base_properties: Record<string, unknown>;
+  status: "proposed" | "committed" | "rejected";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Theme {
+  id: string;
+  project_id: string;
+  name: string;
+  base_properties: Record<string, unknown>;
+  status: "proposed" | "committed" | "rejected";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Issue {
+  id: string;
+  branch_id: string;
+  type: string;
+  description: string;
+  related_beat_ids: string[];
+  related_entity_ids: string[];
+  status: "open" | "resolved" | "dismissed";
+  detected_at: string;
+  resolved_at: string | null;
 }
