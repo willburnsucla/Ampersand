@@ -74,6 +74,17 @@ async def list_projects(
     return await repo.list(owner_id=user.user_id)
 
 
+@router_v2.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    project_id: UUID,
+    repo: SqlProjectRepo = Depends(get_project_repo),
+    user: UserContext = Depends(get_current_user),
+) -> None:
+    deleted = await repo.delete(project_id, owner_id=user.user_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+
 # Branches
 
 class CreateBranchBody(BaseModel):
