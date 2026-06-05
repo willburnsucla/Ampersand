@@ -1,5 +1,4 @@
-// Types derived from backend/app/domain/models_v2.py
-// Do not add fields that don't exist in the backend models
+// Mirrors backend/app/domain/models_v2.py — keep in sync, no extra fields
 
 export interface Project {
   id: string;

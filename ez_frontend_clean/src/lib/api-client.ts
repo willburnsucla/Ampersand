@@ -9,8 +9,7 @@ import type {
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const API_V2_BASE = `${BASE_URL}/api/v2`;
 
-// In mock mode the backend accepts any token. When Clerk is wired in,
-// replace this with a real JWT from your auth client.
+// TODO: replace with real JWT from Clerk when auth is wired in
 const AUTH_TOKEN = "mock";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -31,8 +30,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// ── Projects ───────────────────────────────────────────────────────────────
-
 export async function listProjects(): Promise<Project[]> {
   return request<Project[]>("/projects");
 }
@@ -44,8 +41,6 @@ export async function createProject(input: { title: string }): Promise<Project> 
   });
 }
 
-// ── Branches ───────────────────────────────────────────────────────────────
-
 export async function createBranch(input: {
   project_id: string;
   name?: string | null;
@@ -56,13 +51,9 @@ export async function createBranch(input: {
   });
 }
 
-// ── Beats ──────────────────────────────────────────────────────────────────
-
 export async function listBeats(projectId: string, branchId: string): Promise<Beat[]> {
   return request<Beat[]>(`/projects/${projectId}/branches/${branchId}/beats`);
 }
-
-// ── Conversation ───────────────────────────────────────────────────────────
 
 export async function sendTurn(body: TurnRequest): Promise<TurnResult> {
   return request<TurnResult>("/conversation/turn", {
@@ -71,10 +62,7 @@ export async function sendTurn(body: TurnRequest): Promise<TurnResult> {
   });
 }
 
-// ── Session bootstrap ──────────────────────────────────────────────────────
-// Creates (or reuses) a v2 project + branch for the current chat session.
-// Stored in sessionStorage so a page refresh reuses the same IDs.
-
+// Session is stored in sessionStorage so a page refresh reuses the same project/branch.
 const SESSION_KEY = "ampersand_session_v2";
 
 interface Session {
