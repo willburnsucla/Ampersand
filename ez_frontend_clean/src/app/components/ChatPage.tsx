@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { User, Send, Sparkles, BookOpen, BarChart3, TrendingUp, Users } from 'lucide-react';
+import { User, Send, Sparkles, BookOpen, BarChart3, GitBranch, TrendingUp, Users } from 'lucide-react';
 import { LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
-import { getOrCreateSession, sendTurn } from '../../lib/api-client';
+import { getOrCreateSession, listBeats, sendTurn } from '../../lib/api-client';
+import type { Beat } from '../../lib/types';
+import { BeatGraph } from './BeatGraph';
 
 interface Message {
   id: string;
@@ -45,13 +47,26 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
   const [isLoading, setIsLoading] = useState(false);
   const [hasEnoughData, setHasEnoughData] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [beats, setBeats] = useState<Beat[]>([]);
 
-  const sessionRef = useRef<{ storyId: string; branchId: string } | null>(null);
+  const sessionRef = useRef<{ projectId: string; branchId: string } | null>(null);
   const isSendingRef = useRef(false);
+
+  const refreshBeats = async (session: { projectId: string; branchId: string }) => {
+    try {
+      const fetched = await listBeats(session.projectId, session.branchId);
+      setBeats(fetched);
+    } catch (err) {
+      console.error('Failed to fetch beats:', err);
+    }
+  };
 
   useEffect(() => {
     getOrCreateSession('My Ampersand Story')
-      .then((session) => { sessionRef.current = session; })
+      .then((session) => {
+        sessionRef.current = session;
+        return refreshBeats(session);
+      })
       .catch((err) => {
         console.error('Failed to create session:', err);
         setError('Could not connect to the backend. Is the server running?');
@@ -81,13 +96,13 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
 
     try {
       const result = await sendTurn({
-        story_id: sessionRef.current.storyId,
+        project_id: sessionRef.current.projectId,
         branch_id: sessionRef.current.branchId,
         content: textToSend,
       });
 
       const aiMessage: Message = {
-        id: result.turn_id,
+        id: Date.now().toString(),
         role: 'assistant',
         content: result.reply,
         timestamp: new Date(),
@@ -98,6 +113,10 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
         if (updated.length >= 6) setHasEnoughData(true);
         return updated;
       });
+
+      if (sessionRef.current) {
+        await refreshBeats(sessionRef.current);
+      }
     } catch (err) {
       console.error('Turn failed:', err);
       setError('Failed to get a response. Please try again.');
@@ -222,6 +241,15 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
 
       {/* Sidebar - Real-time Visuals */}
       <div className="w-96 border-l border-border bg-card overflow-y-auto">
+        {/* Story Graph */}
+        <div className="p-6 border-b border-border">
+          <div className="flex items-center gap-2 mb-3">
+            <GitBranch className="w-5 h-5 text-primary" />
+            <h3 className="text-xl">Story Graph</h3>
+          </div>
+          <BeatGraph beats={beats} />
+        </div>
+
         <div className="p-6 border-b border-border">
           <div className="flex items-center gap-2 mb-2">
             <BarChart3 className="w-5 h-5 text-primary" />
