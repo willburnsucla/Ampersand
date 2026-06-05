@@ -52,10 +52,12 @@ INJECTION_KEYWORDS: Final[list[str]] = [
 # Keywords that are suspicious only in combination with other patterns.
 # (e.g., "ignore" + "rules" is worse than either alone)
 SUSPICIOUS_PATTERNS: Final[list[tuple[str, ...]]] = [
+    ("ignore", "system prompt"),
     ("ignore", "rules"),
     ("ignore", "instructions"),
     ("forget", "story"),
     ("disregard", "character"),
+    ("disregard", "instructions"),
     ("pretend", "character", "speaks"),
 ]
 
@@ -117,8 +119,9 @@ VERBOSE_LOGGING: Final[bool] = os.getenv("SECURITY_VERBOSE_LOGGING", "false").lo
 # If not set or file doesn't exist, falls back to heuristic pattern matching.
 SECURITY_ML_MODEL_PATH: Final[str] = os.getenv("SECURITY_ML_MODEL_PATH", "")
 
-# Voyage AI API key for embeddings (required if using ML model).
-VOYAGE_API_KEY: Final[str] = os.getenv("VOYAGE_API_KEY", "")
+# Embedding model name for local embeddings (using sentence-transformers).
+# Defaults to a lightweight, fast model. Can be overridden via environment variable.
+SECURITY_EMBEDDING_MODEL_NAME: Final[str] = os.getenv("SECURITY_EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
 
 # Timeout for ML inference in milliseconds (default: 100ms).
 # If inference takes longer, falls back to heuristics.
