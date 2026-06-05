@@ -1,8 +1,5 @@
 /**
- * ApiClient — T-017 (stub).
- *
- * Sole HTTP entry point on the frontend. Full implementation in Week 2.
- * Types are imported from the shared schema types once `make codegen` runs.
+ * ApiClient — sole HTTP entry point on the frontend.
  *
  * Architectural invariant #7: The frontend ONLY communicates with the backend
  * through ApiClient / SseClient / AuthClient. Never fetch() directly in components.
@@ -10,7 +7,7 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000'
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     public status: number,
     public code: string,
@@ -37,7 +34,7 @@ async function apiFetch<T>(
     if (token) headers['Authorization'] = `Bearer ${token}`
   }
 
-  const res = await fetch(`${API_BASE}/api/v1${path}`, { ...fetchOptions, headers })
+  const res = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers })
 
   if (!res.ok) {
     let detail = res.statusText
@@ -51,112 +48,101 @@ async function apiFetch<T>(
   return res.json() as Promise<T>
 }
 
-// ── ApiClient interface ────────────────────────────────────────────────────────
+// HttpApiClient
 
-export interface ApiClient {
-  // Stories
-  listStories(): Promise<unknown[]>
-  createStory(input: { title: string }): Promise<unknown>
+import type {
+  Project, Branch, Beat, Character, Theme, Setting,
+  Issue, ConversationTurn, TurnResultV2,
+  Story, GraphSnapshot, TurnResult,
+} from '@/lib/types'
 
-  // Graph
-  getGraph(storyId: string, branchId: string): Promise<unknown>
-
-  // Branches
-  createBranch(input: {
-    story_id: string
-    parent_branch_id?: string
-    created_from_beat_id?: string
-    name?: string
-  }): Promise<unknown>
-  transitionBranch(branchId: string, event: string): Promise<unknown>
-  listBranches(storyId: string): Promise<unknown[]>
-
-  // Conversation
-  postTurn(req: { story_id: string; branch_id: string; content: string }): Promise<unknown>
-
-  // Export
-  exportStory(storyId: string, opts?: { branch_id?: string; include_alternative_branches?: boolean }): Promise<unknown>
-
-  // Queries
-  query(input: { story_id: string; branch_id: string; question: string }): Promise<unknown>
-
-  // Gaps
-  getGaps(storyId: string, branchId: string): Promise<unknown[]>
-
-  // Visualizations
-  getViz(storyId: string, branchId: string, kind: 'character_arcs' | 'tension_curve' | 'structure_heatmap'): Promise<unknown>
-}
-
-// ── HttpApiClient implementation ──────────────────────────────────────────────
-
-export class HttpApiClient implements ApiClient {
+export class HttpApiClient {
   private getToken: () => Promise<string | null>
 
   constructor(getToken: () => Promise<string | null>) {
     this.getToken = getToken
   }
 
-  private fetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-    return apiFetch<T>(path, { ...options, getToken: this.getToken })
+  private v1<T>(path: string, options: RequestInit = {}): Promise<T> {
+    return apiFetch<T>(`/api/v1${path}`, { ...options, getToken: this.getToken })
   }
 
-  async listStories() {
-    return this.fetch<unknown[]>('/stories')
+  private v2<T>(path: string, options: RequestInit = {}): Promise<T> {
+    return apiFetch<T>(`/api/v2${path}`, { ...options, getToken: this.getToken })
   }
 
-  async createStory(input: { title: string }) {
-    return this.fetch('/stories', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    })
+  // v2: projects
+
+  listProjects(): Promise<Project[]> {
+    return this.v2('/projects')
   }
 
-  async getGraph(storyId: string, branchId: string) {
-    return this.fetch(`/stories/${storyId}/graph?branch_id=${branchId}`)
+  createProject(input: { title: string }): Promise<Project> {
+    return this.v2('/projects', { method: 'POST', body: JSON.stringify(input) })
   }
 
-  async createBranch(input: object) {
-    return this.fetch('/branches', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    })
+  // v2: branches
+
+  listBranchesV2(projectId: string): Promise<Branch[]> {
+    return this.v2(`/projects/${projectId}/branches`)
   }
 
-  async transitionBranch(branchId: string, event: string) {
-    return this.fetch(`/branches/${branchId}/transition`, {
-      method: 'POST',
-      body: JSON.stringify({ event }),
-    })
+  createBranchV2(input: {
+    project_id: string
+    name?: string
+    parent_branch_id?: string
+    created_from_beat_id?: string
+  }): Promise<Branch> {
+    return this.v2('/branches', { method: 'POST', body: JSON.stringify(input) })
   }
 
-  async listBranches(storyId: string) {
-    return this.fetch<unknown[]>(`/stories/${storyId}/branches`)
+  // v2: entities
+
+  listBeats(projectId: string, branchId: string): Promise<Beat[]> {
+    return this.v2(`/projects/${projectId}/branches/${branchId}/beats`)
   }
 
-  async postTurn(req: object) {
-    return this.fetch('/conversation/turn', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    })
+  listCharacters(projectId: string): Promise<Character[]> {
+    return this.v2(`/projects/${projectId}/characters`)
   }
 
-  async exportStory(storyId: string, opts?: object) {
-    const params = new URLSearchParams(opts as Record<string, string>)
-    return this.fetch(`/stories/${storyId}/export?${params}`)
+  listThemes(projectId: string): Promise<Theme[]> {
+    return this.v2(`/projects/${projectId}/themes`)
   }
 
-  async query(input: object) {
-    return this.fetch('/queries', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    })
+  listSettings(projectId: string): Promise<Setting[]> {
+    return this.v2(`/projects/${projectId}/settings`)
   }
 
-  async getGaps(storyId: string, branchId: string) {
-    return this.fetch<unknown[]>(`/stories/${storyId}/gaps?branch_id=${branchId}`)
+  listIssues(projectId: string, branchId: string): Promise<Issue[]> {
+    return this.v2(`/projects/${projectId}/branches/${branchId}/issues`)
   }
 
-  async getViz(storyId: string, branchId: string, kind: string) {
-    return this.fetch(`/stories/${storyId}/visualizations/${kind}?branch_id=${branchId}`)
+  listTurns(projectId: string, branchId: string): Promise<ConversationTurn[]> {
+    return this.v2(`/projects/${projectId}/branches/${branchId}/turns`)
+  }
+
+  // v2: conversation turn
+
+  postTurnV2(req: { project_id: string; branch_id: string; content: string }): Promise<TurnResultV2> {
+    return this.v2('/conversation/turn', { method: 'POST', body: JSON.stringify(req) })
+  }
+
+  // v1: legacy (graph-store / SSE bootstrap)
+
+  listStories(): Promise<Story[]> {
+    return this.v1('/stories')
+  }
+
+  createStory(input: { title: string }): Promise<Story> {
+    return this.v1('/stories', { method: 'POST', body: JSON.stringify(input) })
+  }
+
+  getGraph(storyId: string, branchId: string): Promise<GraphSnapshot> {
+    return this.v1(`/stories/${storyId}/graph?branch_id=${branchId}`)
+  }
+
+  postTurn(req: { story_id: string; branch_id: string; content: string }): Promise<TurnResult> {
+    return this.v1('/conversation/turn', { method: 'POST', body: JSON.stringify(req) })
   }
 }

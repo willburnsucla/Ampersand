@@ -15,6 +15,7 @@ from app.repos.beat_repo import SqlBeatRepo
 from app.repos.branch_repo import SqlBranchRepo
 from app.repos.character_repo import SqlCharacterRepo
 from app.repos.conversation_repo import SqlConversationTurnRepo
+from app.repos.issue_repo import SqlIssueRepo
 from app.repos.project_repo import SqlProjectRepo
 from app.repos.setting_repo import SqlSettingRepo
 from app.repos.theme_repo import SqlThemeRepo
@@ -24,6 +25,38 @@ from app.services.delta_applier import DeltaApplier
 from app.services.extractor_v2 import MockExtractorV2
 from app.services.orchestrator import ConversationOrchestrator
 from app.services.socratic_prompter import SocraticPrompter
+
+
+def get_project_repo(session: AsyncSession = Depends(get_db)) -> SqlProjectRepo:
+    return SqlProjectRepo(session)
+
+
+def get_branch_repo_v2(session: AsyncSession = Depends(get_db)) -> SqlBranchRepo:
+    return SqlBranchRepo(session)
+
+
+def get_beat_repo(session: AsyncSession = Depends(get_db)) -> SqlBeatRepo:
+    return SqlBeatRepo(session)
+
+
+def get_character_repo(session: AsyncSession = Depends(get_db)) -> SqlCharacterRepo:
+    return SqlCharacterRepo(session)
+
+
+def get_theme_repo(session: AsyncSession = Depends(get_db)) -> SqlThemeRepo:
+    return SqlThemeRepo(session)
+
+
+def get_setting_repo(session: AsyncSession = Depends(get_db)) -> SqlSettingRepo:
+    return SqlSettingRepo(session)
+
+
+def get_issue_repo(session: AsyncSession = Depends(get_db)) -> SqlIssueRepo:
+    return SqlIssueRepo(session)
+
+
+def get_conversation_repo(session: AsyncSession = Depends(get_db)) -> SqlConversationTurnRepo:
+    return SqlConversationTurnRepo(session)
 
 
 def get_orchestrator(session: AsyncSession = Depends(get_db)) -> ConversationOrchestrator:
