@@ -52,10 +52,14 @@ INJECTION_KEYWORDS: Final[list[str]] = [
 # Keywords that are suspicious only in combination with other patterns.
 # (e.g., "ignore" + "rules" is worse than either alone)
 SUSPICIOUS_PATTERNS: Final[list[tuple[str, ...]]] = [
+    ("ignore", "system prompt"),
     ("ignore", "rules"),
     ("ignore", "instructions"),
+    ("forget", "instructions"),
+    ("forget", "system"),
     ("forget", "story"),
     ("disregard", "character"),
+    ("disregard", "instructions"),
     ("pretend", "character", "speaks"),
 ]
 
@@ -109,3 +113,19 @@ VERBOSE_LOGGING: Final[bool] = os.getenv("SECURITY_VERBOSE_LOGGING", "false").lo
     "1",
     "yes",
 )
+
+# ── ML-Based Detection ────────────────────────────────────────────────────────
+
+# Path to pickled ML model for injection detection (optional).
+# If set and file exists, uses ML classifier instead of heuristics.
+# If not set or file doesn't exist, falls back to heuristic pattern matching.
+SECURITY_ML_MODEL_PATH: Final[str] = os.getenv("SECURITY_ML_MODEL_PATH", "")
+
+# Embedding model name for local embeddings (using sentence-transformers).
+# Defaults to a lightweight, fast model. Can be overridden via environment variable.
+SECURITY_EMBEDDING_MODEL_NAME: Final[str] = os.getenv("SECURITY_EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+
+# Timeout for ML inference in milliseconds (default: 100ms).
+# If inference takes longer, falls back to heuristics.
+ML_INFERENCE_TIMEOUT_MS: Final[int] = int(os.getenv("ML_INFERENCE_TIMEOUT_MS", "100"))
+

@@ -5,12 +5,16 @@ Reads AMPERSAND_BACKEND_MODE to select InMemory vs Postgres implementations.
 All module-level singletons are instantiated once at import time.
 Route handlers NEVER import repos directly, they use these dependency functions.
 """
+import logging
+import os
 import uuid
+
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_db
+from app.domain.models import Branch, ConversationTurn
 from app.repos.graph_repo import GraphRepo, InMemoryGraphRepo, PostgresGraphRepo
 from app.repos.provenance_index import (
     InMemoryProvenanceIndex,
@@ -19,8 +23,10 @@ from app.repos.provenance_index import (
 )
 from app.repos.story_repo import InMemoryStoryRepo, PostgresStoryRepo, StoryRepo
 from app.security import PromptSecurityManager
+from app.security.config import SECURITY_EMBEDDING_MODEL_NAME, SECURITY_ML_MODEL_PATH
 from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
-from app.domain.models import Branch, ConversationTurn
+
+logger = logging.getLogger(__name__)
 
 
 # ── In-memory mock implementations ───────────────────────────────────────────
@@ -73,7 +79,24 @@ _branch_repo = InMemoryBranchRepo()
 _conv_repo = InMemoryConversationRepo()
 _prov_index = InMemoryProvenanceIndex()
 _mock_extractor = MockExtractor()
-_prompt_security_manager = PromptSecurityManager()
+
+# Initialize ML classifier if available
+_ml_classifier = None
+if SECURITY_ML_MODEL_PATH and os.path.exists(SECURITY_ML_MODEL_PATH):
+    try:
+        from app.security.ml_classifier import MLInjectionClassifier
+        _ml_classifier = MLInjectionClassifier(SECURITY_ML_MODEL_PATH, SECURITY_EMBEDDING_MODEL_NAME)
+        logger.info(f"ML injection detector initialized from {SECURITY_ML_MODEL_PATH}")
+    except Exception as e:
+        logger.error(f"Failed to initialize ML classifier: {e}. Falling back to heuristics.")
+        _ml_classifier = None
+else:
+    if SECURITY_ML_MODEL_PATH:
+        logger.debug(f"ML model path not set or file not found: {SECURITY_ML_MODEL_PATH}")
+
+# Initialize security manager with optional ML classifier
+_prompt_security_manager = PromptSecurityManager(ml_classifier=_ml_classifier)
+
 
 
 # ── Dependency providers ──────────────────────────────────────────────────────

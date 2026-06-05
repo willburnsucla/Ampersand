@@ -28,8 +28,9 @@ dependencies = [
     # LLM (native Gemini)
     "google-genai>=1.0",
 
-    # Embeddings (Voyage AI)
-    "voyageai>=0.3",
+    # ML (injection detection)
+    "scikit-learn>=1.4",
+    "sentence-transformers>=3.0",
 ]
 
 [project.optional-dependencies]

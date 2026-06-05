@@ -14,6 +14,11 @@ os.environ.setdefault("AMPERSAND_BACKEND_MODE", "mock")
 # local .env sets EXTRACTOR_BACKEND=gemini for manual runs
 os.environ.setdefault("EXTRACTOR_BACKEND", "mock")
 
+# Ryuk (testcontainers' cleanup sidecar) tries to bind port 8080, which is often
+# occupied on dev machines. The `with PostgresContainer(...)` context manager
+# already handles cleanup on normal exit, so Ryuk is unnecessary here.
+os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
+
 import app.domain.orm_v2  # noqa: F401, E402  (registers v2 tables on Base.metadata)
 from app.core.db import Base  # noqa: E402
 

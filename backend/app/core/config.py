@@ -28,9 +28,6 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     gemini_escalation_model: str = ""  # falls back to gemini_model (a plain retry) if unset
 
-    # ── Voyage AI (embeddings) ────────────────────────────────────────────────
-    voyage_api_key: str = ""
-
     # -- Supabase ---------------------------------
     # Project URL (https://<ref>.supabase.co). Used to fetch the public JWKS
     # for verifying asymmetric (ES256) JWTs.

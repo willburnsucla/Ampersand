@@ -11,6 +11,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth.supabase_gate import UserContext, get_current_user
+from app.core.dependencies import get_prompt_security_manager
+from app.security import PromptSecurityManager, SecurityException
+from app.services.extractor import LlmContext
 from app.core.dependencies_v2 import (
     get_beat_repo,
     get_branch_repo_v2,
@@ -224,7 +227,14 @@ async def post_turn(
     body: TurnRequestV2,
     orchestrator: ConversationOrchestrator = Depends(get_orchestrator),
     user: UserContext = Depends(get_current_user),
+    security_manager: PromptSecurityManager = Depends(get_prompt_security_manager),
 ) -> TurnResultV2:
+    ctx = LlmContext(user_message=body.content, branch_summary="", recent_turns=[], relevant_nodes=[])
+    try:
+        await security_manager.process_context(ctx, body.project_id, body.branch_id)
+    except SecurityException as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.sanitized_message) from exc
+
     try:
         return await orchestrator.handle_turn(body, owner_id=user.user_id)
     except TurnAuthorizationError as exc:
