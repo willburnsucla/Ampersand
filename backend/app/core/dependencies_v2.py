@@ -6,8 +6,8 @@ session it builds a fresh Sql repo on it (real mode). The seam that decides whic
 get_v2_session, yielding None in mock mode and a live session in real mode. The per-repo
 providers (used by the read endpoints in router_v2) and get_orchestrator (the turn) both
 source their repos through that one decision, so the whole v2 surface runs under make
-dev-mock with no postgres. MockExtractorV2 stands in until ClaudeExtractorV2 lands behind
-the same abc.
+dev-mock with no postgres. The extractor is a separate axis: get_extractor wires
+MockExtractorV2 or GeminiExtractorV2 by extractor_backend.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from app.repos.theme_repo import InMemoryThemeRepo, SqlThemeRepo, ThemeRepo
 from app.services.consistency_checker import HeuristicConsistencyChecker
 from app.services.context_builder import ContextBuilder
 from app.services.delta_applier import DeltaApplier
-from app.services.extractor_v2 import MockExtractorV2
+from app.services.extractor_v2 import ExtractorV2, GeminiExtractorV2, MockExtractorV2
 from app.services.orchestrator import ConversationOrchestrator
 from app.services.socratic_prompter import SocraticPrompter
 
@@ -112,6 +112,14 @@ def get_conversation_repo(
     return _repo(session, _conversations, SqlConversationTurnRepo)
 
 
+def get_extractor() -> ExtractorV2:
+    # the extractor is its own axis, independent of whether repos are mock or sql, so you
+    # can run real extraction under make dev-mock with no database.
+    if app_settings.extractor_backend == "gemini":
+        return GeminiExtractorV2()
+    return MockExtractorV2()
+
+
 def get_orchestrator(
     projects: ProjectRepo = Depends(get_project_repo),
     branches: BranchRepo = Depends(get_branch_repo_v2),
@@ -120,6 +128,7 @@ def get_orchestrator(
     themes: ThemeRepo = Depends(get_theme_repo),
     settings: SettingRepo = Depends(get_setting_repo),
     conversations: ConversationTurnRepo = Depends(get_conversation_repo),
+    extractor: ExtractorV2 = Depends(get_extractor),
 ) -> ConversationOrchestrator:
     # pure assembly: the repos arrive already mode-resolved through the providers, so
     # there is no mock-vs-real branching here.
@@ -131,7 +140,7 @@ def get_orchestrator(
             beats=beats, characters=characters, themes=themes,
             settings=settings, conversations=conversations,
         ),
-        extractor=MockExtractorV2(),
+        extractor=extractor,
         delta_applier=DeltaApplier(
             beats=beats, characters=characters, themes=themes, settings=settings
         ),

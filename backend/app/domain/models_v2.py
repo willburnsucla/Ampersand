@@ -178,5 +178,6 @@ class TurnRequestV2(BaseModel):
 
 class TurnResultV2(BaseModel):
     reply: str
-    beat: Beat | None = None
+    beats: list[Beat] = Field(default_factory=list)
+    beat: Beat | None = None  # first beat written this turn, kept for the single-beat frontend
     issues: list[Issue] = Field(default_factory=list)

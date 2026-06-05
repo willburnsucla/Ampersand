@@ -18,8 +18,15 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://ampersand:ampersand@localhost:5432/ampersand"
     sync_database_url: str = "postgresql://ampersand:ampersand@localhost:5432/ampersand"
 
-    # ── Anthropic ─────────────────────────────────────────────────────────────
-    anthropic_api_key: str = ""
+    # ── Extractor backend ─────────────────────────────────────────────────────
+    # which extractor get_extractor wires, independent of the repo mode: "mock"
+    # (MockExtractorV2, deterministic, no key) or "gemini" (GeminiExtractorV2). defaults
+    # to mock so nothing calls a keyed api until set; flip to gemini to run real extraction
+    # even under make dev-mock (no db needed). free key at aistudio.google.com.
+    extractor_backend: str = "mock"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_escalation_model: str = ""  # falls back to gemini_model (a plain retry) if unset
 
     # ── Voyage AI (embeddings) ────────────────────────────────────────────────
     voyage_api_key: str = ""
