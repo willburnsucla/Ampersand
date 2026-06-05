@@ -2,11 +2,14 @@ import { useState } from 'react';
 import { ChatPage } from './components/ChatPage';
 import { ProfilePage } from './components/ProfilePage';
 import { StoryPage } from './components/StoryPage';
+import { SignInPage } from './components/SignInPage';
+import { useAuth } from '../lib/auth';
 import type { Project } from '../lib/types';
 
 type Page = 'chat' | 'profile' | 'story';
 
 export default function App() {
+  const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('chat');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   // Increment to force ChatPage to remount with a fresh session
@@ -22,6 +25,10 @@ export default function App() {
     setChatKey(k => k + 1);
     setCurrentPage('chat');
   };
+
+  if (loading) return null
+
+  if (!user) return <SignInPage />
 
   return (
     <div className="size-full">

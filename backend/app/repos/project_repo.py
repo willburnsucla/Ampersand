@@ -8,7 +8,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete as sql_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models_v2 import Project
@@ -38,6 +38,9 @@ class ProjectRepo(ABC):
 
     @abstractmethod
     async def set_primary_branch(self, project_id: UUID, branch_id: UUID, *, owner_id: str) -> Project: ...
+
+    @abstractmethod
+    async def delete(self, project_id: UUID, *, owner_id: str) -> bool: ...
 
 
 class SqlProjectRepo(ProjectRepo):
@@ -81,6 +84,14 @@ class SqlProjectRepo(ProjectRepo):
         await self._session.refresh(row)
         return _to_project(row)
 
+    async def delete(self, project_id: UUID, *, owner_id: str) -> bool:
+        stmt = sql_delete(ProjectOrm).where(
+            ProjectOrm.id == project_id,
+            ProjectOrm.owner_id == owner_id,
+        )
+        result = await self._session.execute(stmt)
+        return result.rowcount > 0
+
 
 class InMemoryProjectRepo(ProjectRepo):
     """In-memory ProjectRepo for mock mode. Stores Pydantic Projects keyed by id."""
@@ -112,3 +123,10 @@ class InMemoryProjectRepo(ProjectRepo):
             raise ValueError(f"project {project_id} not found for this owner")
         row.primary_branch_id = branch_id
         return row.model_copy(deep=True)
+
+    async def delete(self, project_id: UUID, *, owner_id: str) -> bool:
+        row = self._projects.get(project_id)
+        if row is None or row.owner_id != owner_id:
+            return False
+        del self._projects[project_id]
+        return True

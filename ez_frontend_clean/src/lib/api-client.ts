@@ -8,20 +8,23 @@ import type {
   TurnRequest,
   TurnResult,
 } from "./types";
+import { supabase } from "./supabase";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const API_V2_BASE = `${BASE_URL}/api/v2`;
 
-// In mock mode the backend accepts any token. When Clerk is wired in,
-// replace this with a real JWT from your auth client.
-const AUTH_TOKEN = "mock";
+async function getToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession()
+  return session?.access_token ?? "mock"
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = await getToken()
   const res = await fetch(`${API_V2_BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${AUTH_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       ...options.headers,
     },
   });
@@ -31,6 +34,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(`API ${res.status} on ${path}: ${text}`);
   }
 
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -75,6 +79,10 @@ export async function listIssues(projectId: string, branchId: string): Promise<I
   return request<Issue[]>(`/projects/${projectId}/branches/${branchId}/issues`);
 }
 
+export async function deleteProject(projectId: string): Promise<void> {
+  await request<void>(`/projects/${projectId}`, { method: "DELETE" });
+}
+
 export async function sendTurn(body: TurnRequest): Promise<TurnResult> {
   return request<TurnResult>("/conversation/turn", {
     method: "POST",
@@ -91,11 +99,12 @@ interface Session {
 }
 
 export async function getOrCreateSession(title = "My Story"): Promise<Session> {
+  const projects = await listProjects();
+
   const cached = sessionStorage.getItem(SESSION_KEY);
   if (cached) {
     try {
       const session = JSON.parse(cached) as Session;
-      const projects = await listProjects();
       if (projects.some((p) => p.id === session.projectId)) {
         return session;
       }
@@ -103,6 +112,17 @@ export async function getOrCreateSession(title = "My Story"): Promise<Session> {
       console.warn("Failed to validate cached session, regenerating...", err);
     }
     clearSession();
+  }
+
+  // Reuse the first existing project/branch instead of creating a duplicate
+  if (projects.length > 0) {
+    const project = projects[0];
+    const branches = await listBranches(project.id);
+    if (branches.length > 0) {
+      const session: Session = { projectId: project.id, branchId: branches[0].id };
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      return session;
+    }
   }
 
   const project = await createProject({ title });
