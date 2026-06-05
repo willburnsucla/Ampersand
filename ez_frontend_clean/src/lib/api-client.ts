@@ -31,7 +31,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`API ${res.status} on ${path}: ${text}`);
+    let message = text;
+    try { message = JSON.parse(text).detail ?? text; } catch { /* not JSON */ }
+    throw new Error(message);
   }
 
   if (res.status === 204) return undefined as T;
