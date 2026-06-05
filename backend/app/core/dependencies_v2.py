@@ -33,7 +33,12 @@ from app.repos.theme_repo import InMemoryThemeRepo, SqlThemeRepo, ThemeRepo
 from app.services.consistency_checker import HeuristicConsistencyChecker
 from app.services.context_builder import ContextBuilder
 from app.services.delta_applier import DeltaApplier
-from app.services.extractor_v2 import ExtractorV2, GeminiExtractorV2, MockExtractorV2
+from app.services.extractor_v2 import (
+    ExtractorV2,
+    FallbackExtractorV2,
+    GeminiExtractorV2,
+    MockExtractorV2,
+)
 from app.services.orchestrator import ConversationOrchestrator
 from app.services.socratic_prompter import SocraticPrompter
 
@@ -116,7 +121,9 @@ def get_extractor() -> ExtractorV2:
     # the extractor is its own axis, independent of whether repos are mock or sql, so you
     # can run real extraction under make dev-mock with no database.
     if app_settings.extractor_backend == "gemini":
-        return GeminiExtractorV2()
+        # never let a gemini outage fail a turn: fall back to the deterministic mock so a
+        # turn always yields beats.
+        return FallbackExtractorV2(primary=GeminiExtractorV2(), fallback=MockExtractorV2())
     return MockExtractorV2()
 
 
