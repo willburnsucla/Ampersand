@@ -16,6 +16,7 @@ from app.security import PromptSecurityManager, SecurityException
 from app.services.extractor import LlmContext
 from app.core.dependencies_v2 import (
     get_beat_repo,
+    get_branch_forker,
     get_branch_repo_v2,
     get_character_repo,
     get_conversation_repo,
@@ -45,6 +46,7 @@ from app.repos.issue_repo import SqlIssueRepo
 from app.repos.project_repo import SqlProjectRepo
 from app.repos.setting_repo import SqlSettingRepo
 from app.repos.theme_repo import SqlThemeRepo
+from app.services.branch_forker import BranchForker
 from app.services.orchestrator import ConversationOrchestrator, TurnAuthorizationError
 from pydantic import BaseModel
 
@@ -110,6 +112,36 @@ async def create_branch(
         parent_branch_id=body.parent_branch_id,
         created_from_beat_id=body.created_from_beat_id,
     )
+
+
+# Fork a branch at a beat: a new alternate that inherits the story up to that point
+
+class ForkBranchBody(BaseModel):
+    project_id: UUID
+    parent_branch_id: UUID
+    from_beat_id: UUID
+    name: str | None = None
+
+
+@router_v2.post("/branches/fork", response_model=Branch, status_code=status.HTTP_201_CREATED)
+async def fork_branch(
+    body: ForkBranchBody,
+    projects: SqlProjectRepo = Depends(get_project_repo),
+    forker: BranchForker = Depends(get_branch_forker),
+    user: UserContext = Depends(get_current_user),
+) -> Branch:
+    project = await projects.get(body.project_id, owner_id=user.user_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    try:
+        return await forker.fork(
+            project_id=body.project_id,
+            parent_branch_id=body.parent_branch_id,
+            from_beat_id=body.from_beat_id,
+            name=body.name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router_v2.get("/projects/{project_id}/branches", response_model=list[Branch])

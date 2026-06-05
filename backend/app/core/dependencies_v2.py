@@ -30,6 +30,7 @@ from app.repos.issue_repo import InMemoryIssueRepo, IssueRepo, SqlIssueRepo
 from app.repos.project_repo import InMemoryProjectRepo, ProjectRepo, SqlProjectRepo
 from app.repos.setting_repo import InMemorySettingRepo, SettingRepo, SqlSettingRepo
 from app.repos.theme_repo import InMemoryThemeRepo, SqlThemeRepo, ThemeRepo
+from app.services.branch_forker import BranchForker
 from app.services.consistency_checker import HeuristicConsistencyChecker
 from app.services.context_builder import ContextBuilder
 from app.services.delta_applier import DeltaApplier
@@ -125,6 +126,13 @@ def get_extractor() -> ExtractorV2:
         # turn always yields beats.
         return FallbackExtractorV2(primary=GeminiExtractorV2(), fallback=MockExtractorV2())
     return MockExtractorV2()
+
+
+def get_branch_forker(
+    branches: BranchRepo = Depends(get_branch_repo_v2),
+    beats: BeatRepo = Depends(get_beat_repo),
+) -> BranchForker:
+    return BranchForker(branches=branches, beats=beats)
 
 
 def get_orchestrator(
