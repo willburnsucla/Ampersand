@@ -6,6 +6,7 @@ HTTP status codes.
 """
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -198,6 +199,36 @@ async def delete_beat(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
     if not await beats.delete(beat_id, branch_id=branch_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Beat not found")
+
+
+class UpdateBeatStatusBody(BaseModel):
+    status: Literal["proposed", "committed", "rejected"]
+
+
+@router_v2.patch(
+    "/projects/{project_id}/branches/{branch_id}/beats/{beat_id}",
+    response_model=Beat,
+)
+async def update_beat_status(
+    project_id: UUID,
+    branch_id: UUID,
+    beat_id: UUID,
+    body: UpdateBeatStatusBody,
+    projects: SqlProjectRepo = Depends(get_project_repo),
+    branches: SqlBranchRepo = Depends(get_branch_repo_v2),
+    beats: SqlBeatRepo = Depends(get_beat_repo),
+    user: UserContext = Depends(get_current_user),
+) -> Beat:
+    project = await projects.get(project_id, owner_id=user.user_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    branch = await branches.get(branch_id, project_id=project_id)
+    if branch is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
+    try:
+        return await beats.set_status(beat_id, body.status, branch_id=branch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Beat not found") from exc
 
 
 # Characters

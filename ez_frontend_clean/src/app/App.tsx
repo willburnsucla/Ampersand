@@ -26,6 +26,13 @@ export default function App() {
     setCurrentPage('chat');
   };
 
+  // Re-enter an existing story in the editor (not the read-only analysis view).
+  const handleOpenStory = (project: Project) => {
+    setSelectedProject(project);
+    setChatKey(k => k + 1);
+    setCurrentPage('chat');
+  };
+
   if (loading) return null
 
   if (!user) return <SignInPage />
@@ -35,6 +42,7 @@ export default function App() {
       {currentPage === 'chat' && (
         <ChatPage
           key={chatKey}
+          projectId={selectedProject?.id}
           onNavigateProfile={() => setCurrentPage('profile')}
         />
       )}
@@ -42,6 +50,7 @@ export default function App() {
         <ProfilePage
           onNavigateBack={() => setCurrentPage('chat')}
           onNavigateStory={handleNavigateStory}
+          onOpenStory={handleOpenStory}
           onStartNewStory={handleStartNewStory}
         />
       )}

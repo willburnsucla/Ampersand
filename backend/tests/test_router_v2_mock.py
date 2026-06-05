@@ -150,3 +150,68 @@ async def test_read_endpoints_run_in_mock_with_no_database():
     project_id = created.json()["id"]
     assert listed.status_code == 200
     assert any(p["id"] == project_id for p in listed.json())
+
+
+async def test_patch_beat_status_commits_a_proposed_beat():
+    # a beat lands proposed; the PATCH is how the writer confirms it
+    project, branch = await _seed_project_and_branch()
+    beat = await dv2._beats.create(
+        branch_id=branch.id, sequence_index_in_branch=0, logline="Maya enters"
+    )
+    assert beat.status == "proposed"
+    client = _client()
+    try:
+        resp = await client.patch(
+            f"/api/v2/projects/{project.id}/branches/{branch.id}/beats/{beat.id}",
+            json={"status": "committed"},
+            headers={"Authorization": "Bearer mock"},
+        )
+    finally:
+        await client.aclose()
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "committed"
+    stored = await dv2._beats.get(beat.id, branch_id=branch.id)
+    assert stored is not None and stored.status == "committed"
+
+
+async def test_patch_beat_status_missing_beat_returns_404():
+    project, branch = await _seed_project_and_branch()
+    client = _client()
+    try:
+        resp = await client.patch(
+            f"/api/v2/projects/{project.id}/branches/{branch.id}/beats/{uuid.uuid4()}",
+            json={"status": "committed"},
+            headers={"Authorization": "Bearer mock"},
+        )
+    finally:
+        await client.aclose()
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 404
+
+
+async def test_delete_beat_endpoint_removes_it():
+    # http-level cover for the delete fix: a deleted beat is gone from the list
+    project, branch = await _seed_project_and_branch()
+    beat = await dv2._beats.create(
+        branch_id=branch.id, sequence_index_in_branch=0, logline="gone soon"
+    )
+    client = _client()
+    try:
+        resp = await client.delete(
+            f"/api/v2/projects/{project.id}/branches/{branch.id}/beats/{beat.id}",
+            headers={"Authorization": "Bearer mock"},
+        )
+        listed = await client.get(
+            f"/api/v2/projects/{project.id}/branches/{branch.id}/beats",
+            headers={"Authorization": "Bearer mock"},
+        )
+    finally:
+        await client.aclose()
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 204
+    assert listed.status_code == 200
+    assert listed.json() == []
