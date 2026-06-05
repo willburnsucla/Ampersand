@@ -216,3 +216,77 @@ class SqlCharacterRepo(CharacterRepo):
         if existing is None:
             self._session.add(BeatCharacterOrm(beat_id=beat_id, character_id=character_id))
             await self._session.flush()
+
+
+class InMemoryCharacterRepo(CharacterRepo):
+    """In-memory CharacterRepo for mock mode. Stores characters, overlays, and links."""
+
+    def __init__(self) -> None:
+        self._characters: dict[UUID, Character] = {}
+        self._overlays: dict[tuple[UUID, UUID], dict] = {}  # (character_id, branch_id) -> overlay
+        self._links: set[tuple[UUID, UUID]] = set()  # (beat_id, character_id)
+
+    async def create(
+        self, *, project_id: UUID, name: str, base_properties: dict | None = None
+    ) -> Character:
+        character = Character(
+            project_id=project_id,
+            name=name,
+            base_properties=base_properties if base_properties is not None else {},
+        )
+        self._characters[character.id] = character
+        return character.model_copy(deep=True)
+
+    async def get(self, character_id: UUID, *, project_id: UUID) -> Character | None:
+        row = self._characters.get(character_id)
+        if row is None or row.project_id != project_id:
+            return None
+        return row.model_copy(deep=True)
+
+    async def list(self, *, project_id: UUID) -> list[Character]:
+        rows = [c for c in self._characters.values() if c.project_id == project_id]
+        return [c.model_copy(deep=True) for c in rows]
+
+    async def set_base_properties(
+        self, character_id: UUID, base_properties: dict, *, project_id: UUID
+    ) -> Character:
+        row = self._characters.get(character_id)
+        if row is None or row.project_id != project_id:
+            raise ValueError(f"character {character_id} not found in this project")
+        row.base_properties = base_properties
+        return row.model_copy(deep=True)
+
+    async def upsert_overlay(
+        self, *, character_id: UUID, branch_id: UUID, project_id: UUID, overlay_properties: dict
+    ) -> None:
+        base = self._characters.get(character_id)
+        if base is None or base.project_id != project_id:
+            raise ValueError(f"character {character_id} not found in this project")
+        # unlike sql we do not also check the branch lives in the project (no sibling
+        # store here); the orchestrator's _authorize covers branch validity
+        self._overlays[(character_id, branch_id)] = dict(overlay_properties)
+
+    async def get_view(
+        self, character_id: UUID, branch_id: UUID, *, project_id: UUID
+    ) -> CharacterView | None:
+        base = self._characters.get(character_id)
+        if base is None or base.project_id != project_id:
+            return None
+        merged = dict(base.base_properties)
+        overlay = self._overlays.get((character_id, branch_id))
+        if overlay is not None:
+            merged.update(overlay)
+        return CharacterView(
+            id=base.id, name=base.name, properties=merged, resolved_in_branch=branch_id
+        )
+
+    async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Character]:
+        rows = [
+            c
+            for c in self._characters.values()
+            if c.project_id == project_id and (beat_id, c.id) in self._links
+        ]
+        return [c.model_copy(deep=True) for c in rows]
+
+    async def link_to_beat(self, *, beat_id: UUID, character_id: UUID) -> None:
+        self._links.add((beat_id, character_id))

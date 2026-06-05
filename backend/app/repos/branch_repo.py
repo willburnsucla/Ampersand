@@ -158,3 +158,79 @@ class SqlBranchRepo(BranchRepo):
         await self._session.flush()
         await self._session.refresh(row)
         return _to_branch(row)
+
+
+class InMemoryBranchRepo(BranchRepo):
+    """In-memory BranchRepo for mock mode."""
+
+    def __init__(self) -> None:
+        self._branches: dict[UUID, Branch] = {}
+
+    async def create(
+        self,
+        *,
+        project_id: UUID,
+        name: str | None = None,
+        parent_branch_id: UUID | None = None,
+        created_from_beat_id: UUID | None = None,
+        declared_arc: str | None = None,
+    ) -> Branch:
+        branch = Branch(
+            project_id=project_id,
+            name=name,
+            parent_branch_id=parent_branch_id,
+            created_from_beat_id=created_from_beat_id,
+            declared_arc=declared_arc,
+        )
+        self._branches[branch.id] = branch
+        return branch.model_copy(deep=True)
+
+    async def get(self, branch_id: UUID, *, project_id: UUID) -> Branch | None:
+        row = self._branches.get(branch_id)
+        if row is None or row.project_id != project_id:
+            return None
+        return row.model_copy(deep=True)
+
+    async def list(self, *, project_id: UUID) -> list[Branch]:
+        rows = [b for b in self._branches.values() if b.project_id == project_id]
+        return [b.model_copy(deep=True) for b in rows]
+
+    async def transition(self, branch_id: UUID, event: BranchEvent, *, project_id: UUID) -> Branch:
+        row = self._branches.get(branch_id)
+        if row is None or row.project_id != project_id:
+            raise ValueError(f"branch {branch_id} not found in this project")
+        # next_state raises InvalidTransitionError on an illegal move; let it propagate
+        row.state = BranchStateMachine.next_state(row.state, event)
+        return row.model_copy(deep=True)
+
+    async def create_fork(
+        self,
+        *,
+        project_id: UUID,
+        parent_branch_id: UUID,
+        created_from_beat_id: UUID,
+        name: str | None = None,
+        declared_arc: str | None = None,
+    ) -> Branch:
+        parent = self._branches.get(parent_branch_id)
+        if parent is None or parent.project_id != project_id:
+            raise ValueError(f"parent branch {parent_branch_id} not found in this project")
+
+        # fork cap, at most 3 alternates per fork beat per project (same as sql)
+        existing = sum(
+            1
+            for b in self._branches.values()
+            if b.created_from_beat_id == created_from_beat_id and b.project_id == project_id
+        )
+        if existing >= 3:
+            raise ValueError(f"beat {created_from_beat_id} already has {existing} forks, cap is 3")
+
+        branch = Branch(
+            project_id=project_id,
+            name=name,
+            parent_branch_id=parent_branch_id,
+            created_from_beat_id=created_from_beat_id,
+            declared_arc=declared_arc,
+        )
+        self._branches[branch.id] = branch
+        return branch.model_copy(deep=True)

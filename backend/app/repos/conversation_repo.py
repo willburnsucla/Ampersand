@@ -6,7 +6,7 @@ never ORM objects, so the persistence layer stays hidden from everything downstr
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -72,6 +72,45 @@ class SqlConversationTurnRepo(ConversationTurnRepo):
         stmt = select(ConversationTurnOrm).where(ConversationTurnOrm.id == turn_id)
         row = (await self._session.execute(stmt)).scalar_one_or_none()
         return _to_turn(row) if row is not None else None
+
+
+class InMemoryConversationTurnRepo(ConversationTurnRepo):
+    """In-memory v2 ConversationTurnRepo for mock mode.
+
+    Distinct from the v1 InMemoryConversationRepo below: this one satisfies the v2
+    ConversationTurnRepo abc (keyword append_turn, newest-first list_turns) and is
+    what dependencies_v2 wires in mock mode. created_at is tz-aware to mirror the
+    timestamptz column so a before cursor compares cleanly.
+    """
+
+    def __init__(self) -> None:
+        self._turns: dict[UUID, ConversationTurn] = {}
+
+    async def append_turn(self, *, branch_id: UUID, role: str, content: str) -> ConversationTurn:
+        turn = ConversationTurn(
+            branch_id=branch_id,
+            role=role,
+            content=content,
+            created_at=datetime.now(UTC),
+        )
+        self._turns[turn.id] = turn
+        return turn.model_copy(deep=True)
+
+    async def list_turns(
+        self, branch_id: UUID, *, limit: int = 50, before: datetime | None = None,
+    ) -> list[ConversationTurn]:
+        rows = [
+            t
+            for t in self._turns.values()
+            if t.branch_id == branch_id and (before is None or t.created_at < before)
+        ]
+        # newest first, then cap at limit
+        rows = list(reversed(rows))[:limit]
+        return [t.model_copy(deep=True) for t in rows]
+
+    async def get_turn(self, turn_id: UUID) -> ConversationTurn | None:
+        row = self._turns.get(turn_id)
+        return row.model_copy(deep=True) if row is not None else None
 
 
 class InMemoryConversationRepo:
