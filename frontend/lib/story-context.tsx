@@ -1,25 +1,24 @@
 'use client'
 
 /**
- * StoryContext — bootstraps the active story + branch on mount.
+ * StoryContext — bootstraps the active project + branch on mount using v2 APIs.
  *
  * Bootstrap sequence:
  *   1. Read localStorage cache (fast path) and validate against backend
- *   2. If invalid: GET /stories → create if empty → GET /branches → create if empty
- *   3. Persist {storyId, branchId} to localStorage keyed by clerk userId
+ *   2. If invalid: GET /api/v2/projects → create if empty → GET branches → create if empty
+ *   3. Persist {projectId, branchId} to localStorage keyed by user id
  *
- * The active branch concept: Story.active_branch_id can be null (the backend
- * doesn't auto-set it on story creation, and there's no API to set it).
- * The frontend manages "active branch" itself via this context + localStorage.
+ * storyId in the context value IS the v2 project_id — kept as "storyId" so
+ * downstream components (ChatPane, GraphBootstrap) don't need renaming yet.
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useApiClient } from '@/lib/use-api-client'
 import { useUserId } from '@/lib/auth-client'
-import type { Story, Branch } from '@/lib/types'
+import type { Branch } from '@/lib/types'
 
 interface StoryContextValue {
-  storyId: string | null
+  storyId: string | null     // v2 project_id
   branchId: string | null
   storyTitle: string | null
   branchName: string | null
@@ -36,15 +35,14 @@ const StoryContext = createContext<StoryContextValue>({
   error: null,
 })
 
-const CACHE_KEY_PREFIX = 'ampersand:story-context:'
+const CACHE_KEY_PREFIX = 'ampersand:project-context:'
 
-function readCache(userId: string): { storyId: string; branchId: string } | null {
+function readCache(userId: string): { projectId: string; branchId: string } | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY_PREFIX + userId)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    // Defensive: validate shape — old/corrupt entries return null
-    if (typeof parsed?.storyId === 'string' && typeof parsed?.branchId === 'string') {
+    if (typeof parsed?.projectId === 'string' && typeof parsed?.branchId === 'string') {
       return parsed
     }
     return null
@@ -53,12 +51,16 @@ function readCache(userId: string): { storyId: string; branchId: string } | null
   }
 }
 
-function writeCache(userId: string, data: { storyId: string; branchId: string }) {
+function writeCache(userId: string, data: { projectId: string; branchId: string }) {
   try {
     localStorage.setItem(CACHE_KEY_PREFIX + userId, JSON.stringify(data))
-  } catch {
-    // localStorage may be unavailable (private browsing, quota exceeded) — non-fatal
-  }
+  } catch {}
+}
+
+function clearCache(userId: string) {
+  try {
+    localStorage.removeItem(CACHE_KEY_PREFIX + userId)
+  } catch {}
 }
 
 export function StoryProvider({ children }: { children: React.ReactNode }) {
@@ -83,18 +85,18 @@ export function StoryProvider({ children }: { children: React.ReactNode }) {
         // 1. Fast path: validate localStorage cache against backend
         const cached = readCache(userId!)
         if (cached) {
-          const stories = (await apiClient.listStories()) as Story[]
+          const projects = await apiClient.listProjects()
           if (cancelled) return
-          const cachedStory = stories.find((s) => s.id === cached.storyId)
-          if (cachedStory) {
-            const branches = (await apiClient.listBranches(cached.storyId)) as Branch[]
+          const cachedProject = projects.find((p) => p.id === cached.projectId)
+          if (cachedProject) {
+            const branches = await apiClient.listBranchesV2(cached.projectId)
             if (cancelled) return
             const cachedBranch = branches.find((b) => b.id === cached.branchId)
             if (cachedBranch) {
               setValue({
-                storyId: cached.storyId,
+                storyId: cached.projectId,
                 branchId: cached.branchId,
-                storyTitle: cachedStory.title,
+                storyTitle: cachedProject.title,
                 branchName: cachedBranch.name,
                 isLoading: false,
                 error: null,
@@ -102,40 +104,38 @@ export function StoryProvider({ children }: { children: React.ReactNode }) {
               return
             }
           }
-          // Cache invalid — fall through to full bootstrap
+          // Cache invalid — clear it and fall through to full bootstrap
+          clearCache(userId!)
         }
 
-        // 2. Full bootstrap: list / create story
-        let stories = (await apiClient.listStories()) as Story[]
+        // 2. Full bootstrap: list / create project
+        let projects = await apiClient.listProjects()
         if (cancelled) return
-        if (stories.length === 0) {
-          await apiClient.createStory({ title: 'My Story' })
+        if (projects.length === 0) {
+          await apiClient.createProject({ title: 'My Story' })
           if (cancelled) return
-          stories = (await apiClient.listStories()) as Story[]
+          projects = await apiClient.listProjects()
           if (cancelled) return
         }
-        const story = stories[0]
+        const project = projects[0]
 
-        // 3. List / create branch (prefer an active one if multiple exist)
-        const branches = (await apiClient.listBranches(story.id)) as Branch[]
+        // 3. List / create branch (prefer an active one)
+        const branches = await apiClient.listBranchesV2(project.id)
         if (cancelled) return
         let branch: Branch
         if (branches.length === 0) {
-          branch = (await apiClient.createBranch({
-            story_id: story.id,
-            name: 'Main',
-          })) as Branch
+          branch = await apiClient.createBranchV2({ project_id: project.id, name: 'Main' })
           if (cancelled) return
         } else {
           branch = branches.find((b) => b.state === 'active') ?? branches[0]
         }
 
         // 4. Persist + expose
-        writeCache(userId!, { storyId: story.id, branchId: branch.id })
+        writeCache(userId!, { projectId: project.id, branchId: branch.id })
         setValue({
-          storyId: story.id,
+          storyId: project.id,
           branchId: branch.id,
-          storyTitle: story.title,
+          storyTitle: project.title,
           branchName: branch.name,
           isLoading: false,
           error: null,
@@ -145,7 +145,7 @@ export function StoryProvider({ children }: { children: React.ReactNode }) {
           setValue((prev) => ({
             ...prev,
             isLoading: false,
-            error: err instanceof Error ? err.message : 'Failed to load story',
+            error: err instanceof Error ? err.message : 'Failed to load project',
           }))
         }
       }

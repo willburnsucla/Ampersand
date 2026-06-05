@@ -19,6 +19,7 @@ from app.repos.beat_repo import InMemoryBeatRepo
 from app.repos.branch_repo import InMemoryBranchRepo
 from app.repos.character_repo import InMemoryCharacterRepo
 from app.repos.conversation_repo import InMemoryConversationTurnRepo
+from app.repos.issue_repo import InMemoryIssueRepo
 from app.repos.project_repo import InMemoryProjectRepo
 from app.repos.setting_repo import InMemorySettingRepo
 from app.repos.theme_repo import InMemoryThemeRepo
@@ -35,6 +36,7 @@ def _fresh_singletons():
     dv2._characters = InMemoryCharacterRepo()
     dv2._themes = InMemoryThemeRepo()
     dv2._settings = InMemorySettingRepo()
+    dv2._issues = InMemoryIssueRepo()
     dv2._conversations = InMemoryConversationTurnRepo()
     yield
 
@@ -124,3 +126,27 @@ async def test_turn_rejects_wrong_owner():
         app.dependency_overrides.clear()
 
     assert resp.status_code == 403
+
+
+async def test_read_endpoints_run_in_mock_with_no_database():
+    # lam's read surface goes through the same mock-aware providers, so it has to
+    # round-trip with no database too, not just the conversation turn
+    client = _client()
+    try:
+        created = await client.post(
+            "/api/v2/projects",
+            json={"title": "mock story"},
+            headers={"Authorization": "Bearer mock"},
+        )
+        listed = await client.get(
+            "/api/v2/projects",
+            headers={"Authorization": "Bearer mock"},
+        )
+    finally:
+        await client.aclose()
+        app.dependency_overrides.clear()
+
+    assert created.status_code == 201
+    project_id = created.json()["id"]
+    assert listed.status_code == 200
+    assert any(p["id"] == project_id for p in listed.json())
