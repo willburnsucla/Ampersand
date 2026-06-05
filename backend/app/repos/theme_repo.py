@@ -216,3 +216,77 @@ class SqlThemeRepo(ThemeRepo):
         if existing is None:
             self._session.add(BeatThemeOrm(beat_id=beat_id, theme_id=theme_id))
             await self._session.flush()
+
+
+class InMemoryThemeRepo(ThemeRepo):
+    """In-memory ThemeRepo for mock mode. Stores themes, overlays, and links."""
+
+    def __init__(self) -> None:
+        self._themes: dict[UUID, Theme] = {}
+        self._overlays: dict[tuple[UUID, UUID], dict] = {}  # (theme_id, branch_id) -> overlay
+        self._links: set[tuple[UUID, UUID]] = set()  # (beat_id, theme_id)
+
+    async def create(
+        self, *, project_id: UUID, name: str, base_properties: dict | None = None
+    ) -> Theme:
+        theme = Theme(
+            project_id=project_id,
+            name=name,
+            base_properties=base_properties if base_properties is not None else {},
+        )
+        self._themes[theme.id] = theme
+        return theme.model_copy(deep=True)
+
+    async def get(self, theme_id: UUID, *, project_id: UUID) -> Theme | None:
+        row = self._themes.get(theme_id)
+        if row is None or row.project_id != project_id:
+            return None
+        return row.model_copy(deep=True)
+
+    async def list(self, *, project_id: UUID) -> list[Theme]:
+        rows = [t for t in self._themes.values() if t.project_id == project_id]
+        return [t.model_copy(deep=True) for t in rows]
+
+    async def set_base_properties(
+        self, theme_id: UUID, base_properties: dict, *, project_id: UUID
+    ) -> Theme:
+        row = self._themes.get(theme_id)
+        if row is None or row.project_id != project_id:
+            raise ValueError(f"Theme {theme_id} not found in this project")
+        row.base_properties = base_properties
+        return row.model_copy(deep=True)
+
+    async def upsert_overlay(
+        self, *, theme_id: UUID, branch_id: UUID, project_id: UUID, overlay_properties: dict
+    ) -> None:
+        base = self._themes.get(theme_id)
+        if base is None or base.project_id != project_id:
+            raise ValueError(f"Theme {theme_id} not found in this project")
+        # unlike sql we do not also check the branch lives in the project (no sibling
+        # store here); the orchestrator's _authorize covers branch validity
+        self._overlays[(theme_id, branch_id)] = dict(overlay_properties)
+
+    async def get_view(
+        self, theme_id: UUID, branch_id: UUID, *, project_id: UUID
+    ) -> ThemeView | None:
+        base = self._themes.get(theme_id)
+        if base is None or base.project_id != project_id:
+            return None
+        merged = dict(base.base_properties)
+        overlay = self._overlays.get((theme_id, branch_id))
+        if overlay is not None:
+            merged.update(overlay)
+        return ThemeView(
+            id=base.id, name=base.name, properties=merged, resolved_in_branch=branch_id
+        )
+
+    async def list_for_beat(self, beat_id: UUID, *, project_id: UUID) -> list[Theme]:
+        rows = [
+            t
+            for t in self._themes.values()
+            if t.project_id == project_id and (beat_id, t.id) in self._links
+        ]
+        return [t.model_copy(deep=True) for t in rows]
+
+    async def link_to_beat(self, *, beat_id: UUID, theme_id: UUID) -> None:
+        self._links.add((beat_id, theme_id))

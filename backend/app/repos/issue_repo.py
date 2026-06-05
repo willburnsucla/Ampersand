@@ -3,11 +3,9 @@
 Only this module touches IssueOrm. Returns Pydantic Issues, never ORM objects.
 """
 from __future__ import annotations
-from datetime import datetime
-
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -111,3 +109,49 @@ class SqlIssueRepo(IssueRepo):
         await self._session.flush()
         await self._session.refresh(row)
         return _to_issue(row)
+
+
+class InMemoryIssueRepo(IssueRepo):
+    """In-memory IssueRepo for mock mode."""
+
+    def __init__(self) -> None:
+        self._issues: dict[UUID, Issue] = {}
+
+    async def create(
+        self,
+        *,
+        branch_id: UUID,
+        type: str,
+        description: str,
+        related_beat_ids: list[UUID] | None = None,
+        related_entity_ids: list[UUID] | None = None,
+    ) -> Issue:
+        issue = Issue(
+            branch_id=branch_id,
+            type=type,
+            description=description,
+            related_beat_ids=related_beat_ids if related_beat_ids is not None else [],
+            related_entity_ids=related_entity_ids if related_entity_ids is not None else [],
+        )
+        self._issues[issue.id] = issue
+        return issue.model_copy(deep=True)
+
+    async def get(self, issue_id: UUID, *, branch_id: UUID) -> Issue | None:
+        row = self._issues.get(issue_id)
+        if row is None or row.branch_id != branch_id:
+            return None
+        return row.model_copy(deep=True)
+
+    async def list(self, *, branch_id: UUID) -> list[Issue]:
+        rows = [i for i in self._issues.values() if i.branch_id == branch_id]
+        # sql orders by detected_at desc; reversed insertion is the in-memory stand-in
+        return [i.model_copy(deep=True) for i in reversed(rows)]
+
+    async def set_status(self, issue_id: UUID, status: str, *, branch_id: UUID) -> Issue:
+        row = self._issues.get(issue_id)
+        if row is None or row.branch_id != branch_id:
+            raise ValueError(f"issue {issue_id} not found in this branch")
+        row.status = status
+        if status == "resolved":
+            row.resolved_at = datetime.now(UTC)
+        return row.model_copy(deep=True)
