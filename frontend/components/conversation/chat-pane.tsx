@@ -1,41 +1,62 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useApiClient } from '@/lib/use-api-client'
 import { useConversationStore, useMessages, type ChatMessage } from '@/lib/conversation-store'
-import type { TurnResult } from '@/lib/types'
+import type { TurnResultV2 } from '@/lib/types'
 
 interface ChatPaneProps {
-  storyId: string
+  storyId: string   // v2 project_id
   branchId: string
 }
 
 export function ChatPane({ storyId, branchId }: ChatPaneProps) {
   const apiClient = useApiClient()
+  const queryClient = useQueryClient()
   const messages = useMessages(storyId, branchId)
   const appendMessage = useConversationStore((s) => s.appendMessage)
+  const setMessages = useConversationStore((s) => s.setMessages)
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Hydrate conversation history from backend on mount
+  useQuery({
+    queryKey: ['turns', storyId, branchId],
+    queryFn: async () => {
+      const turns = await apiClient.listTurns(storyId, branchId)
+      const chatMessages: ChatMessage[] = turns.map((t) => ({
+        id: t.id,
+        role: t.role === 'writer' ? 'user' : 'assistant',
+        content: t.content,
+      }))
+      setMessages(storyId, branchId, chatMessages)
+      return turns
+    },
+    enabled: !!storyId && !!branchId,
+    // Only hydrate once per session — in-memory store takes over after
+    staleTime: Infinity,
+  })
+
   const mutation = useMutation({
-    mutationFn: async (content: string): Promise<TurnResult> => {
-      return (await apiClient.postTurn({
-        story_id: storyId,
-        branch_id: branchId,
-        content,
-      })) as TurnResult
+    mutationFn: async (content: string): Promise<TurnResultV2> => {
+      return apiClient.postTurnV2({ project_id: storyId, branch_id: branchId, content })
     },
     onSuccess: (data) => {
       appendMessage(storyId, branchId, {
-        id: `assistant-${data.turn_id}`,  // namespaced — avoids collision with user IDs
+        id: `assistant-${Date.now()}`,
         role: 'assistant',
         content: data.reply || '(empty reply)',
       })
+      // Refresh entity queries so Inspector updates after each turn
+      queryClient.invalidateQueries({ queryKey: ['beats', storyId, branchId] })
+      queryClient.invalidateQueries({ queryKey: ['characters', storyId] })
+      queryClient.invalidateQueries({ queryKey: ['themes', storyId] })
+      queryClient.invalidateQueries({ queryKey: ['settings', storyId] })
     },
   })
 
-  // Auto-scroll on new messages or when thinking starts
+  // Auto-scroll on new messages or while thinking
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, mutation.isPending])
@@ -45,18 +66,12 @@ export function ChatPane({ storyId, branchId }: ChatPaneProps) {
     const content = input.trim()
     if (!content || mutation.isPending) return
 
-    // Optimistic: show user message immediately. Use crypto.randomUUID for
-    // collision-free ID (falls back to Date.now+random for older browsers).
     const userId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? `user-${crypto.randomUUID()}`
         : `user-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-    appendMessage(storyId, branchId, {
-      id: userId,
-      role: 'user',
-      content,
-    })
+    appendMessage(storyId, branchId, { id: userId, role: 'user', content })
     setInput('')
     mutation.mutate(content)
   }

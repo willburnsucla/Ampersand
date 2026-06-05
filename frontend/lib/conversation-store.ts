@@ -5,9 +5,8 @@
  * clicks Inspector then Conversation again). Local state would lose history.
  * Putting it in Zustand keeps it across navigations within the same session.
  *
- * Note: this is in-memory only — refreshing the page clears history.
- * A proper backend `listTurns` endpoint would let us hydrate from server,
- * but that's out of scope for this PR.
+ * In-memory only within a tab session. On mount, ChatPane hydrates from the
+ * backend via listTurns so history survives page refreshes.
  */
 
 import { create } from 'zustand'
@@ -23,6 +22,7 @@ interface ConversationStoreState {
   messagesByContext: Record<string, ChatMessage[]>
 
   appendMessage: (storyId: string, branchId: string, message: ChatMessage) => void
+  setMessages: (storyId: string, branchId: string, messages: ChatMessage[]) => void
   clearContext: (storyId: string, branchId: string) => void
   reset: () => void
 }
@@ -45,6 +45,15 @@ export const useConversationStore = create<ConversationStoreState>((set) => ({
         },
       }
     })
+  },
+
+  setMessages(storyId, branchId, messages) {
+    set((state) => ({
+      messagesByContext: {
+        ...state.messagesByContext,
+        [contextKey(storyId, branchId)]: messages,
+      },
+    }))
   },
 
   clearContext(storyId, branchId) {
