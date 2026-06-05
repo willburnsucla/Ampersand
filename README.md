@@ -2,7 +2,7 @@
 
 A story-development tool. The writer talks to it in natural language; it builds a typed **story graph** (beats, characters, themes, settings) that branches like git, and an LLM mid-layer extracts beats from prose, tracks the entities they involve, checks consistency, and analyzes narrative arc.
 
-> **Status:** The Week-1 scaffold and the query-catalog retrieval wave (#53) are on `main`; `make dev-mock` runs the node/edge backend end to end. The rest of the **mid-layer** (the typed beat/entity graph plus the LLM orchestration over it) is in review as PR #54. Remaining work is wiring the frontend to it, swapping SSE for Supabase Realtime, and dropping in the real Claude calls. Details below.
+> **Status (pre-demo):** the typed v2 mid-layer is on `main` and runs end to end. `make dev-mock` brings up the mock backend (no database) and the Vite frontend; a writer signs in, pastes prose, and watches it become beats on a branchable story graph. Extraction runs on Gemini with a deterministic mock fallback so a turn never fails, beats dedupe so re-sent prose does not pile up, and branches fork and switch in the UI. Details below.
 
 ---
 
@@ -21,7 +21,7 @@ router_v2.py                 thin HTTP handlers, one per endpoint  (POST /api/v2
    │ Depends()
 ConversationOrchestrator     the mediator: handle_turn() sequences the services, owns nothing else
    ├── ContextBuilder        gather branch + project state into LlmContextV2
-   ├── Extractor (Mock/Claude) prose -> proposed beat + named entities
+   ├── Extractor (Mock/Gemini) prose -> proposed beats + named entities
    ├── DeltaApplier          write the proposed beat, resolve/create/link its entities
    ├── ConsistencyChecker    inline + deep-scan -> Issues
    └── SocraticPrompter       decide when to ask a clarifying question
@@ -40,23 +40,20 @@ The `docs/mid-layer-architecture.md` doc has the full version: the layer map, th
 
 ## What is built, and what is left
 
-**Built (in review on PRs #53 / #54 / #56):**
-- the typed domain (`models_v2.py`, `orm_v2.py`) and all eight repos with base ⊕ overlay merge, branch-scoped reads, and the 3-fork cap
-- `query_catalog.py`: the Facade the LLM sees, 14 tools (10 retrieval + `find_logic_error`, `scan_branch`, `classify_arc`, `framework_anomalies`), Pydantic-derived tool schemas, validating dispatch
-- `frameworks/`: Vonnegut (7 arcs) and Papalampidi (5 turning points) over `narrative.py`, behind a registry
-- `ConsistencyChecker` (heuristic impl today), and the turn services: `ContextBuilder`, `DeltaApplier`, `SocraticPrompter`, and a deterministic `MockExtractorV2`
-- `ConversationOrchestrator` and `router_v2.py` with the v2 DI wiring; a turn round-trips over HTTP against real Postgres
-- Supabase auth gate (mock gate for local dev), branch state machine, the prompt-security module
-- 197 backend tests green
+**Built:**
+- the typed domain (`models_v2.py`, `orm_v2.py`) and all eight repos with base ⊕ overlay merge, branch-scoped reads, and the 3-fork cap, each with an InMemory impl so `/api/v2` runs in `make dev-mock` with no database
+- `GeminiExtractorV2`: real beat extraction over Gemini (native `google-genai`), a whole passage to several ordered beats. it is curatorial, not advisory: it organizes the beats the writer's prose already contains and never invents, embellishes, suggests, or judges. transient errors retry, and any failure falls back to the deterministic `MockExtractorV2`, so a turn always produces beats
+- beat dedup: the extractor is shown the beats already in the story and asked for only new ones, with a logline match in the applier as a backstop, so re-sent or overlapping prose does not duplicate beats
+- story branching in the UI: `POST /branches/fork` forks an alternate that inherits the story up to a chosen beat, and the graph has a switcher to move between branches
+- the turn services (`ContextBuilder`, `DeltaApplier`, `ConsistencyChecker`, `SocraticPrompter`), `ConversationOrchestrator`, and `router_v2.py`; a turn round-trips over HTTP in both mock and real mode
+- `query_catalog.py` (the Facade the LLM sees, tenancy baked in), `frameworks/` (Vonnegut arcs + Papalampidi turning points), the branch state machine, and the prompt-security layer on the turn endpoint
+- Supabase auth: the `ez_frontend_clean` frontend signs in with Supabase; the backend verifies the JWT in real mode and accepts any token in mock mode
+- 350 backend tests green
 
 **Left to do:**
-- InMemory v2 repos so `/api/v2` runs in `make dev-mock` with no database (today the v2 path needs Postgres)
-- point a frontend at `/api/v2` (tracked in issue #55)
-- replace the custom SSE broadcaster with Supabase Realtime (subscribe the client to Postgres row changes, gated by RLS)
-- `ClaudeExtractorV2`: the real extraction behind the `Extractor` ABC (the mock stands in)
-- an LLM-backed `ConsistencyChecker` for the semantic checks (contradiction, character drift, world-rule violations)
-- fold `extractor_v2.py` / `dependencies_v2.py` back into `extractor.py` / `dependencies.py` (the plan calls for EXTEND, not separate files)
-- retire the Week-1 node/edge code (`models.py` graph types, `graph_repo.py`, the original `/api/v1` turn endpoint, the SSE broadcaster) once the frontend is on `/v2`
+- an LLM-backed `ConsistencyChecker` for the semantic checks (contradiction, character drift, world-rule violations); the heuristic checker stands in today
+- Supabase Realtime in place of the custom SSE broadcaster
+- retire the Week-1 node/edge code (`models.py` graph types, `graph_repo.py`, the `/api/v1` turn endpoint) now that the app is on `/v2`
 
 ---
 
@@ -66,10 +63,10 @@ The `docs/mid-layer-architecture.md` doc has the full version: the layer map, th
 |---|---|
 | Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 async, Alembic |
 | Database | PostgreSQL 16 + pgvector (Supabase); no vector store yet, pgvector slots in behind the catalog later |
-| LLM | Anthropic Claude (`claude-haiku-4-5` default, `claude-sonnet-4-6` escalation) |
+| LLM | Google Gemini (`gemini-2.5-flash`), native `google-genai`, with a deterministic mock fallback |
 | Auth | Supabase JWT, verified server-side in `app/auth/supabase_gate.py` (ES256 with an HS256 fallback) |
 | Realtime | Supabase Realtime (planned), replacing the Week-1 custom SSE broadcaster |
-| Frontend | Next.js 14 in `frontend/` (Zustand graph store, TanStack Query, d3); `ez_frontend_clean/` is a separate Vite mockup currently wired to the mock backend |
+| Frontend | `ez_frontend_clean/`: Vite + React, the demo UI (chat, story graph, branch switcher, Supabase sign-in). `frontend/` is the older Next.js app |
 
 ---
 
@@ -78,35 +75,35 @@ The `docs/mid-layer-architecture.md` doc has the full version: the layer map, th
 ```bash
 git clone https://github.com/willburnsucla/Ampersand.git
 cd Ampersand
-make install        # uv sync + npm install
-make dev-mock       # mock backend on :8000, Next.js on :3000
+make dev-mock       # mock backend on :8000 + the Vite frontend on :5173
 ```
 
-`make dev-mock` sets `AMPERSAND_BACKEND_MODE=mock`, which uses in-memory repos and a `MockAuthGate` that accepts any bearer token. Note: mock mode runs the Week-1 node/edge backend today; the v2 path needs Postgres until the InMemory v2 repos land.
+`make dev-mock` sets `AMPERSAND_BACKEND_MODE=mock`: in-memory repos (no Postgres) and a `MockAuthGate` that accepts any bearer token. It installs the frontend and starts both servers, so the whole `/api/v2` app, story graph and all, runs with no database. The mode defaults to `real` when unset, so a misconfigured deploy fails closed (auth on); `make dev-mock` and the test suite set mock explicitly.
 
-The backend mode now defaults to `real` when the env var is unset, so a misconfigured deploy fails closed (auth on) instead of open. `make dev-mock` and `make dev` both set the mode explicitly, and the test suite pins mock.
+For real extraction, drop a Gemini key into `backend/.env` (a free key from [aistudio.google.com](https://aistudio.google.com) works):
 
-Smoke test the Week-1 backend:
-
-```bash
-curl -s http://localhost:8000/api/v1/healthz                    # {"status":"ok"}
-curl -X POST http://localhost:8000/api/v1/stories \
-  -H "Content-Type: application/json" -H "Authorization: Bearer mock" \
-  -d '{"title":"My Story"}'
 ```
+AMPERSAND_BACKEND_MODE=mock
+EXTRACTOR_BACKEND=gemini
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+Leave `EXTRACTOR_BACKEND=mock` to skip Gemini entirely (deterministic beats, no key). Sign-in needs `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` in `ez_frontend_clean/.env`; the mock backend accepts the resulting token.
 
 ---
 
-## Real mode (Postgres + Claude + Supabase)
+## Real mode (Postgres + Gemini + Supabase)
 
 ```bash
-cp .env.example .env     # fill ANTHROPIC_API_KEY, SUPABASE_JWT_SECRET, set AMPERSAND_BACKEND_MODE=real
-make db-up               # docker compose up -d db (pgvector/pgvector:pg16)
+# backend/.env: AMPERSAND_BACKEND_MODE=real, GEMINI_API_KEY, the Supabase Postgres
+# DATABASE_URL (asyncpg) + SYNC_DATABASE_URL, SUPABASE_URL, SUPABASE_JWT_SECRET
+make db-up               # docker compose up -d db (pgvector/pgvector:pg16), or point at Supabase
 make migrate             # alembic upgrade head
 make dev                 # real backend + frontend
 ```
 
-Real mode requires a non-empty `SUPABASE_JWT_SECRET`; the app refuses to boot without one.
+Real mode verifies the Supabase JWT server-side and persists to Postgres; it refuses to boot without `SUPABASE_JWT_SECRET`.
 
 ---
 
@@ -130,7 +127,7 @@ make format          # ruff format + prettier
 1. **No raw DB access outside `app/repos/`.** Every read and write goes through a repo. Each repo owns its aggregate's ORM, including its beat-entity link table.
 2. **The LLM sees only the query catalog.** No SQL, no repos, no ORM rows reach the model. `project_id` and `branch_id` are baked into the catalog at construction, never a tool argument, so the model cannot reach another tenant.
 3. **The conversation turn lives only in `ConversationOrchestrator`.** Route handlers do not call `Extractor`, `DeltaApplier`, or the checker directly.
-4. **The Anthropic SDK is imported only inside the extractor.** No LLM call anywhere else, including the frontend.
+4. **The LLM SDK (`google-genai`) is imported only inside the extractor.** No model call anywhere else, including the frontend.
 5. **Every read and write is tenant-scoped.** Reads and writes filter by `owner_id` / `project_id` / `branch_id`; a foreign id returns nothing or raises, it never leaks.
 6. **Mock and real implementations live in the same package.** `MockAuthGate` next to `SupabaseAuthGate`, the InMemory repo next to the Sql repo. This is what lets the team build against mocks in parallel.
 7. **Beat affect is atomic.** `valence` and `arousal` are scored together or not at all, enforced at the model and as a DB constraint.
@@ -157,7 +154,7 @@ The full design lives in `~/.claude/plans/...ampersand-initial-stateful-forest.m
 ## Tests
 
 ```bash
-make test-backend     # pytest (197 green): repos, services, the catalog, the orchestrator, the turn over HTTP
+make test-backend     # pytest (350 green): repos, services, the catalog, the orchestrator, the turn over HTTP
 make test-frontend    # npm test
 ```
 
