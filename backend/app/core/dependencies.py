@@ -23,7 +23,7 @@ from app.repos.provenance_index import (
 )
 from app.repos.story_repo import InMemoryStoryRepo, PostgresStoryRepo, StoryRepo
 from app.security import PromptSecurityManager
-from app.security.config import SECURITY_ML_MODEL_PATH, VOYAGE_API_KEY
+from app.security.config import SECURITY_EMBEDDING_MODEL_NAME, SECURITY_ML_MODEL_PATH
 from app.services.extractor import ClaudeExtractor, Extractor, MockExtractor
 
 logger = logging.getLogger(__name__)
@@ -82,10 +82,10 @@ _mock_extractor = MockExtractor()
 
 # Initialize ML classifier if available
 _ml_classifier = None
-if SECURITY_ML_MODEL_PATH and os.path.exists(SECURITY_ML_MODEL_PATH) and VOYAGE_API_KEY:
+if SECURITY_ML_MODEL_PATH and os.path.exists(SECURITY_ML_MODEL_PATH):
     try:
         from app.security.ml_classifier import MLInjectionClassifier
-        _ml_classifier = MLInjectionClassifier(SECURITY_ML_MODEL_PATH, VOYAGE_API_KEY)
+        _ml_classifier = MLInjectionClassifier(SECURITY_ML_MODEL_PATH, SECURITY_EMBEDDING_MODEL_NAME)
         logger.info(f"ML injection detector initialized from {SECURITY_ML_MODEL_PATH}")
     except Exception as e:
         logger.error(f"Failed to initialize ML classifier: {e}. Falling back to heuristics.")
