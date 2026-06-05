@@ -1,17 +1,22 @@
-"""Extractor v2: prose to a proposed beat. Mock impl for dev and tests.
+"""Extractor v2: prose to proposed beats.
 
-MockExtractorV2 is deterministic with no external calls. A ClaudeExtractorV2 goes
-behind the same ExtractorV2 abc later; the orchestrator depends on the abc, never
-a concrete extractor.
+MockExtractorV2 is deterministic with no external calls (one beat per non-empty line).
+GeminiExtractorV2 does real extraction over the Gemini API and can break a passage into
+several beats. Both sit behind the ExtractorV2 abc; the orchestrator depends on the abc,
+never a concrete extractor.
 """
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from app.core.config import settings
 from app.domain.models_v2 import (
     Beat,
     Character,
@@ -45,8 +50,8 @@ class ProposedBeat(BaseModel):
     logline: str
     content: dict[str, Any] = Field(default_factory=dict)
     turning_point: TurningPoint | None = None
-    valence: float | None = None
-    arousal: float | None = None
+    valence: float | None = Field(default=None, ge=0, le=1)
+    arousal: float | None = Field(default=None, ge=0, le=1)
     character_names: list[str] = Field(default_factory=list)
     theme_names: list[str] = Field(default_factory=list)
     setting_names: list[str] = Field(default_factory=list)
@@ -60,7 +65,7 @@ class ProposedBeat(BaseModel):
 
 class ExtractionResultV2(BaseModel):
     reply: str
-    proposed_beat: ProposedBeat | None = None
+    proposed_beats: list[ProposedBeat] = Field(default_factory=list)
 
 
 class ExtractorV2(ABC):
@@ -84,20 +89,136 @@ def _matches(text: str, table: dict[str, str]) -> list[str]:
 class MockExtractorV2(ExtractorV2):
     """Deterministic extractor for dev and tests.
 
-    The logline is the writer's message trimmed to one line; entities come from a
-    fixed keyword table, so the same message always yields the same beat.
+    One beat per non-empty line of the message, so a multi-line passage becomes several
+    beats. Entities come from a fixed keyword table, so the same message always yields the
+    same beats.
     """
 
     async def extract(self, ctx: LlmContextV2) -> ExtractionResultV2:
-        text = ctx.user_message.strip()
-        lowered = text.lower()
-        logline = text.splitlines()[0][:200] if text else "Untitled beat"
+        lines = [ln.strip() for ln in ctx.user_message.splitlines() if ln.strip()]
+        if not lines:
+            lines = ["Untitled beat"]
+        beats = [
+            ProposedBeat(
+                logline=line[:200],
+                character_names=_matches(line.lower(), _CHARACTERS),
+                theme_names=_matches(line.lower(), _THEMES),
+                setting_names=_matches(line.lower(), _SETTINGS),
+            )
+            for line in lines
+        ]
+        plural = "s" if len(beats) != 1 else ""
+        reply = f"Drafted {len(beats)} beat{plural} from that."
+        return ExtractionResultV2(reply=reply, proposed_beats=beats)
 
-        proposed = ProposedBeat(
-            logline=logline,
-            character_names=_matches(lowered, _CHARACTERS),
-            theme_names=_matches(lowered, _THEMES),
-            setting_names=_matches(lowered, _SETTINGS),
+
+# ── Gemini ────────────────────────────────────────────────────────────────────
+
+_DEGRADE_REPLY = "I couldn't shape that into a beat. Tell me a bit more about what happens?"
+
+
+class _GeminiBeat(BaseModel):
+    """One beat in Gemini's structured output. No content dict (Gemini's response schema
+    does not model a free-form object well; the DeltaApplier fills content in later)."""
+
+    logline: str
+    turning_point: TurningPoint | None = None
+    valence: float | None = Field(default=None, ge=0, le=1)
+    arousal: float | None = Field(default=None, ge=0, le=1)
+    character_names: list[str] = Field(default_factory=list)
+    theme_names: list[str] = Field(default_factory=list)
+    setting_names: list[str] = Field(default_factory=list)
+
+
+class _GeminiExtraction(BaseModel):
+    """The whole structured response: the beats in order, plus one reply to the writer."""
+
+    reply: str
+    beats: list[_GeminiBeat] = Field(default_factory=list)
+
+
+def _system_prompt(ctx: LlmContextV2) -> str:
+    # name existing entities and recent beats so the model reuses names the DeltaApplier
+    # can resolve, instead of inventing near-duplicates.
+    def names(items) -> str:
+        return ", ".join(i.name for i in items) or "none yet"
+
+    recent = " / ".join(b.logline for b in ctx.recent_beats[-5:]) or "none yet"
+    return (
+        "You read a writer's prose and break it into the story beats it contains, in the "
+        "order they happen. A short line is usually one beat; a long passage is several, "
+        "one per distinct moment. For each beat give a one-sentence logline and the "
+        "characters, themes, and settings it involves, reusing the existing names below "
+        "when they fit. Score valence and arousal together (both 0..1) or leave both "
+        "unset. Also give one short overall reply to the writer.\n"
+        f"Characters: {names(ctx.characters)}\n"
+        f"Themes: {names(ctx.themes)}\n"
+        f"Settings: {names(ctx.settings)}\n"
+        f"Recent beats: {recent}"
+    )
+
+
+class GeminiExtractorV2(ExtractorV2):
+    """Real extraction over Gemini (native google-genai), behind the same ExtractorV2 abc.
+
+    Asks gemini for structured json (a reply plus a list of beats), validates each beat
+    into a ProposedBeat and keeps the good ones. Tries a fast model and escalates once to
+    a stronger one if it gets nothing usable; if both fail it returns a reply with no
+    beats, so a bad turn degrades instead of 500ing. Only content failures degrade; an api
+    error (network, auth, quota) propagates.
+
+    The google-genai sdk is imported only in this module. The client is injectable so tests
+    run with no network.
+    """
+
+    def __init__(
+        self,
+        *,
+        client: Any | None = None,
+        model: str | None = None,
+        escalation_model: str | None = None,
+    ) -> None:
+        self._client = client or genai.Client(api_key=settings.gemini_api_key)
+        self._model = model or settings.gemini_model
+        self._escalation_model = (
+            escalation_model or settings.gemini_escalation_model or self._model
         )
-        reply = f'Drafted a beat from that: "{logline}". Want to keep it?'
-        return ExtractionResultV2(reply=reply, proposed_beat=proposed)
+
+    async def extract(self, ctx: LlmContextV2) -> ExtractionResultV2:
+        system = _system_prompt(ctx)
+        for model in (self._model, self._escalation_model):
+            result = await self._extract_once(model, system, ctx.user_message)
+            if result is not None:
+                return result
+        return ExtractionResultV2(reply=_DEGRADE_REPLY, proposed_beats=[])
+
+    async def _extract_once(
+        self, model: str, system: str, user_message: str
+    ) -> ExtractionResultV2 | None:
+        response = await self._client.aio.models.generate_content(
+            model=model,
+            contents=user_message,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                response_mime_type="application/json",
+                response_schema=_GeminiExtraction,
+            ),
+        )
+        text = getattr(response, "text", None)
+        if not text:
+            return None
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+        beats: list[ProposedBeat] = []
+        for raw in data.get("beats", []):
+            try:
+                beats.append(ProposedBeat.model_validate(raw))
+            except ValidationError:
+                continue  # drop one malformed beat, keep the rest of the passage
+        if not beats:
+            return None  # nothing usable, escalate
+        reply = data.get("reply") or f"Drafted {len(beats)} beats."
+        return ExtractionResultV2(reply=reply, proposed_beats=beats)

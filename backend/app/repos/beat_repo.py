@@ -119,3 +119,59 @@ class SqlBeatRepo(BeatRepo):
         await self._session.flush()
         await self._session.refresh(row)
         return _to_beat(row)
+
+
+class InMemoryBeatRepo(BeatRepo):
+    """In-memory BeatRepo for mock mode."""
+
+    def __init__(self) -> None:
+        self._beats: dict[UUID, Beat] = {}
+
+    async def create(
+        self,
+        *,
+        branch_id: UUID,
+        sequence_index_in_branch: int,
+        logline: str,
+        content: dict | None = None,
+        turning_point: str | None = None,
+        valence: float | None = None,
+        arousal: float | None = None,
+    ) -> Beat:
+        # construct first so the affect-atomic and 0..1 range validators fire, the
+        # same rejection the db check constraints give the sql repo
+        beat = Beat(
+            branch_id=branch_id,
+            sequence_index_in_branch=sequence_index_in_branch,
+            logline=logline,
+            content=content if content is not None else {},
+            turning_point=turning_point,
+            valence=valence,
+            arousal=arousal,
+        )
+        # mirror uq_beat_branch_position: one beat per position per branch
+        for b in self._beats.values():
+            if b.branch_id == branch_id and b.sequence_index_in_branch == sequence_index_in_branch:
+                raise ValueError(
+                    f"branch {branch_id} already has a beat at position {sequence_index_in_branch}"
+                )
+        self._beats[beat.id] = beat
+        return beat.model_copy(deep=True)
+
+    async def get(self, beat_id: UUID, *, branch_id: UUID) -> Beat | None:
+        row = self._beats.get(beat_id)
+        if row is None or row.branch_id != branch_id:
+            return None
+        return row.model_copy(deep=True)
+
+    async def list(self, *, branch_id: UUID) -> list[Beat]:
+        rows = [b for b in self._beats.values() if b.branch_id == branch_id]
+        rows.sort(key=lambda b: b.sequence_index_in_branch)
+        return [b.model_copy(deep=True) for b in rows]
+
+    async def set_status(self, beat_id: UUID, status: str, *, branch_id: UUID) -> Beat:
+        row = self._beats.get(beat_id)
+        if row is None or row.branch_id != branch_id:
+            raise ValueError(f"beat {beat_id} not found in this branch")
+        row.status = status
+        return row.model_copy(deep=True)

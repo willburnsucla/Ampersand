@@ -8,7 +8,7 @@ and logs the reply.
 """
 from __future__ import annotations
 
-from app.domain.models_v2 import Issue, TurnRequestV2, TurnResultV2
+from app.domain.models_v2 import Beat, Issue, TurnRequestV2, TurnResultV2
 from app.repos.branch_repo import BranchRepo
 from app.repos.conversation_repo import ConversationTurnRepo
 from app.repos.project_repo import ProjectRepo
@@ -64,18 +64,26 @@ class ConversationOrchestrator:
 
         extraction = await self._extractor.extract(ctx)
 
-        beat = None
+        beats: list[Beat] = []
         issues: list[Issue] = []
-        if extraction.proposed_beat is not None:
+        context = list(ctx.recent_beats)
+        for proposed in extraction.proposed_beats:
             beat = await self._delta_applier.apply_proposed_beat(
-                extraction.proposed_beat, project_id=req.project_id, branch_id=req.branch_id
+                proposed, project_id=req.project_id, branch_id=req.branch_id
             )
-            issues = await self._checker.inline_check(beat, ctx.recent_beats)
+            issues += await self._checker.inline_check(beat, context)
+            beats.append(beat)
+            context.append(beat)
 
         await self._conversations.append_turn(
             branch_id=req.branch_id, role="assistant", content=extraction.reply
         )
-        return TurnResultV2(reply=extraction.reply, beat=beat, issues=issues)
+        return TurnResultV2(
+            reply=extraction.reply,
+            beats=beats,
+            beat=beats[0] if beats else None,
+            issues=issues,
+        )
 
     async def _authorize(self, req: TurnRequestV2, *, owner_id: str) -> None:
         project = await self._projects.get(req.project_id, owner_id=owner_id)

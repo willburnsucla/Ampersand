@@ -10,6 +10,9 @@ from testcontainers.postgres import PostgresContainer
 # pin mock mode before importing app modules, so the fail-closed real-mode default
 # does not demand real secrets during tests
 os.environ.setdefault("AMPERSAND_BACKEND_MODE", "mock")
+# pin the extractor to the deterministic mock so tests never hit a real llm, even when a
+# local .env sets EXTRACTOR_BACKEND=gemini for manual runs
+os.environ.setdefault("EXTRACTOR_BACKEND", "mock")
 
 # Ryuk (testcontainers' cleanup sidecar) tries to bind port 8080, which is often
 # occupied on dev machines. The `with PostgresContainer(...)` context manager
