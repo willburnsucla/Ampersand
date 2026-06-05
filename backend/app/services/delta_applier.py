@@ -16,6 +16,25 @@ from app.repos.theme_repo import ThemeRepo
 from app.services.extractor_v2 import ProposedBeat
 
 
+def _normalize_logline(text: str) -> str:
+    """Lowercased, whitespace-collapsed form used to tell whether two beats are the same."""
+    return " ".join(text.split()).lower()
+
+
+def _find_duplicate(proposed: ProposedBeat, existing: list[Beat]) -> Beat | None:
+    """The branch beat whose logline already matches the proposed one, if any.
+
+    Beat extraction is not idempotent on its own: re-sending the same prose, or sending
+    overlapping passages, asks the model for beats it has already produced. Matching on the
+    normalized logline lets the applier reuse that beat instead of writing a repeat.
+    """
+    target = _normalize_logline(proposed.logline)
+    for beat in existing:
+        if _normalize_logline(beat.logline) == target:
+            return beat
+    return None
+
+
 class DeltaApplier:
     def __init__(
         self,
@@ -34,6 +53,13 @@ class DeltaApplier:
         self, proposed: ProposedBeat, *, project_id: UUID, branch_id: UUID
     ) -> Beat:
         existing = await self._beats.list(branch_id=branch_id)
+
+        duplicate = _find_duplicate(proposed, existing)
+        if duplicate is not None:
+            # already on this branch: reuse it so re-sent or overlapping prose does not
+            # pile repeat beats onto the graph
+            return duplicate
+
         next_index = max((b.sequence_index_in_branch for b in existing), default=-1) + 1
 
         beat = await self._beats.create(

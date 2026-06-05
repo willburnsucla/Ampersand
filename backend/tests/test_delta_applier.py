@@ -80,3 +80,82 @@ async def test_confirm_and_reject_move_status(db_session):
     )
     assert (await applier.confirm(beat.id, branch_id=branch.id)).status == "committed"
     assert (await applier.reject(beat.id, branch_id=branch.id)).status == "rejected"
+
+
+# re-applying a beat with the same logline reuses it instead of writing a duplicate
+async def test_apply_dedupes_a_repeated_logline(db_session):
+    project, branch = await _seed(db_session)
+    applier = _applier(db_session)
+    first = await applier.apply_proposed_beat(
+        ProposedBeat(logline="Sarah opens the door"), project_id=project.id, branch_id=branch.id
+    )
+    again = await applier.apply_proposed_beat(
+        ProposedBeat(logline="Sarah opens the door"), project_id=project.id, branch_id=branch.id
+    )
+    assert again.id == first.id
+    assert len(await SqlBeatRepo(db_session).list(branch_id=branch.id)) == 1
+
+
+# dedup ignores case and surrounding whitespace
+async def test_apply_dedup_is_case_and_whitespace_insensitive(db_session):
+    project, branch = await _seed(db_session)
+    applier = _applier(db_session)
+    first = await applier.apply_proposed_beat(
+        ProposedBeat(logline="The Ship Sails at Dawn"), project_id=project.id, branch_id=branch.id
+    )
+    again = await applier.apply_proposed_beat(
+        ProposedBeat(logline="  the ship sails at dawn  "),
+        project_id=project.id, branch_id=branch.id,
+    )
+    assert again.id == first.id
+    assert len(await SqlBeatRepo(db_session).list(branch_id=branch.id)) == 1
+
+
+# distinct loglines still create distinct, sequentially indexed beats
+async def test_apply_keeps_distinct_loglines_separate(db_session):
+    project, branch = await _seed(db_session)
+    applier = _applier(db_session)
+    a = await applier.apply_proposed_beat(
+        ProposedBeat(logline="first beat"), project_id=project.id, branch_id=branch.id
+    )
+    b = await applier.apply_proposed_beat(
+        ProposedBeat(logline="second beat"), project_id=project.id, branch_id=branch.id
+    )
+    assert a.id != b.id
+    assert (a.sequence_index_in_branch, b.sequence_index_in_branch) == (0, 1)
+
+
+# a duplicate reuses the beat without linking its entities a second time
+async def test_apply_dedup_does_not_relink_entities(db_session):
+    project, branch = await _seed(db_session)
+    applier = _applier(db_session)
+    first = await applier.apply_proposed_beat(
+        ProposedBeat(logline="Maya enters", character_names=["Maya"]),
+        project_id=project.id, branch_id=branch.id,
+    )
+    again = await applier.apply_proposed_beat(
+        ProposedBeat(logline="Maya enters", character_names=["Maya"]),
+        project_id=project.id, branch_id=branch.id,
+    )
+    assert again.id == first.id
+    chars = await SqlCharacterRepo(db_session).list_for_beat(first.id, project_id=project.id)
+    assert [c.name for c in chars] == ["Maya"]
+    assert len(await SqlCharacterRepo(db_session).list(project_id=project.id)) == 1
+
+
+# a single beat can carry characters, themes, and settings together, all created and linked
+async def test_apply_links_all_three_entity_types(db_session):
+    project, branch = await _seed(db_session)
+    beat = await _applier(db_session).apply_proposed_beat(
+        ProposedBeat(
+            logline="Maya hunts for justice at the old harbor",
+            character_names=["Maya"], theme_names=["Justice"], setting_names=["Old Harbor"],
+        ),
+        project_id=project.id, branch_id=branch.id,
+    )
+    chars = await SqlCharacterRepo(db_session).list_for_beat(beat.id, project_id=project.id)
+    themes = await SqlThemeRepo(db_session).list_for_beat(beat.id, project_id=project.id)
+    settings = await SqlSettingRepo(db_session).list_for_beat(beat.id, project_id=project.id)
+    assert {c.name for c in chars} == {"Maya"}
+    assert {t.name for t in themes} == {"Justice"}
+    assert {s.name for s in settings} == {"Old Harbor"}

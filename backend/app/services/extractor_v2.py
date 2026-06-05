@@ -7,7 +7,10 @@ never a concrete extractor.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import re
 from abc import ABC, abstractmethod
 from typing import Any
 from uuid import UUID
@@ -25,6 +28,15 @@ from app.domain.models_v2 import (
     Theme,
     TurningPoint,
 )
+
+logger = logging.getLogger(__name__)
+
+# transient gemini errors worth retrying: server-side 5xx spikes that usually clear in a
+# second or two. quota/billing 429s are NOT retried (retrying burns api credits and won't
+# recover until billing is fixed); they drop straight to the fallback extractor.
+_TRANSIENT_STATUS = frozenset({500, 502, 503, 504})
+_MAX_ATTEMPTS = 4
+_RETRY_BASE_SECONDS = 1.0
 
 
 class LlmContextV2(BaseModel):
@@ -86,29 +98,40 @@ def _matches(text: str, table: dict[str, str]) -> list[str]:
     return [name for kw, name in table.items() if kw in text]
 
 
-class MockExtractorV2(ExtractorV2):
-    """Deterministic extractor for dev and tests.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
-    One beat per non-empty line of the message, so a multi-line passage becomes several
-    beats. Entities come from a fixed keyword table, so the same message always yields the
-    same beats.
+
+def _segments(text: str) -> list[str]:
+    """Break a message into beat-sized pieces: one per line, then per sentence."""
+    pieces: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        pieces.extend(s.strip() for s in _SENTENCE_SPLIT.split(line) if s.strip())
+    return pieces or ["Untitled beat"]
+
+
+class MockExtractorV2(ExtractorV2):
+    """Deterministic extractor for dev, tests, and the gemini fallback.
+
+    One beat per sentence (split on lines, then sentence boundaries), so a pasted passage
+    becomes several beats. Entities come from a fixed keyword table, so the same message
+    always yields the same beats.
     """
 
     async def extract(self, ctx: LlmContextV2) -> ExtractionResultV2:
-        lines = [ln.strip() for ln in ctx.user_message.splitlines() if ln.strip()]
-        if not lines:
-            lines = ["Untitled beat"]
         beats = [
             ProposedBeat(
-                logline=line[:200],
-                character_names=_matches(line.lower(), _CHARACTERS),
-                theme_names=_matches(line.lower(), _THEMES),
-                setting_names=_matches(line.lower(), _SETTINGS),
+                logline=seg[:200],
+                character_names=_matches(seg.lower(), _CHARACTERS),
+                theme_names=_matches(seg.lower(), _THEMES),
+                setting_names=_matches(seg.lower(), _SETTINGS),
             )
-            for line in lines
+            for seg in _segments(ctx.user_message)
         ]
         plural = "s" if len(beats) != 1 else ""
-        reply = f"Drafted {len(beats)} beat{plural} from that."
+        reply = f"Organized into {len(beats)} beat{plural}."
         return ExtractionResultV2(reply=reply, proposed_beats=beats)
 
 
@@ -143,18 +166,30 @@ def _system_prompt(ctx: LlmContextV2) -> str:
     def names(items) -> str:
         return ", ".join(i.name for i in items) or "none yet"
 
-    recent = " / ".join(b.logline for b in ctx.recent_beats[-5:]) or "none yet"
+    existing = " / ".join(b.logline for b in ctx.recent_beats) or "none yet"
     return (
-        "You read a writer's prose and break it into the story beats it contains, in the "
-        "order they happen. A short line is usually one beat; a long passage is several, "
-        "one per distinct moment. For each beat give a one-sentence logline and the "
-        "characters, themes, and settings it involves, reusing the existing names below "
-        "when they fit. Score valence and arousal together (both 0..1) or leave both "
-        "unset. Also give one short overall reply to the writer.\n"
+        "You are an expert story editor whose only job is to ORGANIZE a writer's prose "
+        "into the beats it already contains. You are curatorial, not advisory: you "
+        "structure and label what the writer actually wrote. You never invent plot, add "
+        "characters, settings, or events that are not in their text, embellish, or change "
+        "their meaning, and you never suggest what should happen next or judge the work.\n"
+        "Break the passage into the distinct story beats it contains, in the order they "
+        "happen. A short line is usually one beat; a long passage is several, one per "
+        "distinct moment. For each beat write a one-sentence logline drawn from the "
+        "writer's own content, and tag the characters, themes, and settings it involves, "
+        "reusing the existing names below when they fit. Where the prose makes the "
+        "emotional tone clear, score valence and arousal together (both 0..1); otherwise "
+        "leave both unset rather than guessing.\n"
+        "Do NOT repeat a beat that is already in the story below, even if you would word "
+        "it differently: return only genuinely new beats, and an empty beats list if the "
+        "passage adds nothing new.\n"
+        "Your reply to the writer is one short, neutral sentence about what you organized "
+        "(how many beats you added, or that nothing was new). Do not praise, critique, or "
+        "advise.\n"
         f"Characters: {names(ctx.characters)}\n"
         f"Themes: {names(ctx.themes)}\n"
         f"Settings: {names(ctx.settings)}\n"
-        f"Recent beats: {recent}"
+        f"Beats already in the story: {existing}"
     )
 
 
@@ -192,18 +227,39 @@ class GeminiExtractorV2(ExtractorV2):
                 return result
         return ExtractionResultV2(reply=_DEGRADE_REPLY, proposed_beats=[])
 
+    async def _generate(self, model: str, system: str, user_message: str):
+        """Call gemini, retrying transient high-demand errors with a short backoff.
+
+        A non-transient error (auth, bad request) raises at once; a transient 503/429 is
+        retried a few times, then raised so the caller's fallback can take over.
+        """
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            response_mime_type="application/json",
+            response_schema=_GeminiExtraction,
+        )
+        last_exc: genai.errors.APIError | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            try:
+                return await self._client.aio.models.generate_content(
+                    model=model, contents=user_message, config=config
+                )
+            except genai.errors.APIError as exc:
+                if getattr(exc, "code", None) not in _TRANSIENT_STATUS:
+                    raise
+                last_exc = exc
+                logger.warning(
+                    "gemini %s on attempt %d/%d",
+                    getattr(exc, "code", "?"), attempt + 1, _MAX_ATTEMPTS,
+                )
+                if attempt < _MAX_ATTEMPTS - 1:
+                    await asyncio.sleep(_RETRY_BASE_SECONDS * 2**attempt)
+        raise last_exc  # every attempt hit a transient error
+
     async def _extract_once(
         self, model: str, system: str, user_message: str
     ) -> ExtractionResultV2 | None:
-        response = await self._client.aio.models.generate_content(
-            model=model,
-            contents=user_message,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                response_mime_type="application/json",
-                response_schema=_GeminiExtraction,
-            ),
-        )
+        response = await self._generate(model, system, user_message)
         text = getattr(response, "text", None)
         if not text:
             return None
@@ -212,13 +268,36 @@ class GeminiExtractorV2(ExtractorV2):
         except (json.JSONDecodeError, TypeError):
             return None
 
+        raw_beats = data.get("beats", [])
         beats: list[ProposedBeat] = []
-        for raw in data.get("beats", []):
+        for raw in raw_beats:
             try:
                 beats.append(ProposedBeat.model_validate(raw))
             except ValidationError:
                 continue  # drop one malformed beat, keep the rest of the passage
-        if not beats:
-            return None  # nothing usable, escalate
+        if raw_beats and not beats:
+            return None  # the model offered beats but all were malformed; escalate
+        # an intentionally empty list (the passage only repeats beats already in the story)
+        # is a valid, successful result: zero new beats, not a failure to escalate.
         reply = data.get("reply") or f"Drafted {len(beats)} beats."
         return ExtractionResultV2(reply=reply, proposed_beats=beats)
+
+
+class FallbackExtractorV2(ExtractorV2):
+    """Runs a primary extractor, dropping to a fallback if the primary raises.
+
+    Keeps a turn producing beats when the real model is unavailable (e.g. a sustained
+    gemini outage): any error from the primary routes to the fallback instead of failing
+    the turn.
+    """
+
+    def __init__(self, *, primary: ExtractorV2, fallback: ExtractorV2) -> None:
+        self._primary = primary
+        self._fallback = fallback
+
+    async def extract(self, ctx: LlmContextV2) -> ExtractionResultV2:
+        try:
+            return await self._primary.extract(ctx)
+        except Exception:
+            logger.warning("primary extractor failed, using fallback", exc_info=True)
+            return await self._fallback.extract(ctx)

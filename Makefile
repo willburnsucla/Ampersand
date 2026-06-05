@@ -59,12 +59,12 @@ codegen: ## Regenerate Pydantic models + TS types from shared JSON schemas
 	@echo "Codegen complete."
 
 # ── Dev servers ───────────────────────────────────────────────────────────────
-dev-mock: ## Start mock backend (no DB needed) + Next.js dev server
+dev-mock: ## Start mock backend (no DB needed) + the ez_frontend_clean Vite dev server
 	@echo "Starting mock backend on :8000 ..."
 	cd $(BACKEND_DIR) && AMPERSAND_BACKEND_MODE=mock \
 		uv run uvicorn app.main:app --reload --port 8000 &
-	@echo "Starting Next.js dev server on :3000 ..."
-	cd $(FRONTEND_DIR) && npm run dev
+	@echo "Starting frontend (Vite) on :5173 ..."
+	cd ez_frontend_clean && npm install && npm run dev
 
 dev: db-up migrate ## Start real backend + Next.js dev server (requires .env)
 	@echo "Starting real backend on :8000 ..."
