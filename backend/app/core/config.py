@@ -21,9 +21,6 @@ class Settings(BaseSettings):
     # ── Anthropic ─────────────────────────────────────────────────────────────
     anthropic_api_key: str = ""
 
-    # ── Voyage AI (embeddings) ────────────────────────────────────────────────
-    voyage_api_key: str = ""
-
     # -- Supabase ---------------------------------
     # Project URL (https://<ref>.supabase.co). Used to fetch the public JWKS
     # for verifying asymmetric (ES256) JWTs.

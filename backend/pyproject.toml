@@ -28,11 +28,9 @@ dependencies = [
     # LLM
     "anthropic>=0.26",
 
-    # Embeddings (Voyage AI)
-    "voyageai>=0.3",
-
     # ML (injection detection)
     "scikit-learn>=1.4",
+    "sentence-transformers>=3.0",
 ]
 
 [project.optional-dependencies]
