@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, MessageSquare, Clock, TrendingUp } from 'lucide-react';
-import { listStories } from '../../lib/api-client';
-import type { Story } from '../../lib/types';
+import { listProjects } from '../../lib/api-client';
+import type { Project } from '../../lib/types';
 
 export function ProfilePage({ onNavigateBack, onNavigateStory }: { onNavigateBack: () => void; onNavigateStory: () => void }) {
-  const [stories, setStories] = useState<Story[]>([]);
+  const [stories, setStories] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listStories()
+    listProjects()
       .then(setStories)
       .catch((err) => {
-        console.error('Failed to load stories:', err);
+        console.error('Failed to load projects:', err);
         setError('Could not load stories. Is the backend running?');
       })
       .finally(() => setIsLoading(false));
@@ -103,7 +103,7 @@ export function ProfilePage({ onNavigateBack, onNavigateStory }: { onNavigateBac
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <MessageSquare className="w-4 h-4" />
-                    <span>{story.active_branch_id ? 'Active branch' : 'No branches yet'}</span>
+                    <span>{story.primary_branch_id ? 'Active branch' : 'No branches yet'}</span>
                   </div>
                 </button>
               ))}
