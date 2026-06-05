@@ -177,6 +177,29 @@ async def list_beats(
     return await beats.list(branch_id=branch_id)
 
 
+@router_v2.delete(
+    "/projects/{project_id}/branches/{branch_id}/beats/{beat_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_beat(
+    project_id: UUID,
+    branch_id: UUID,
+    beat_id: UUID,
+    projects: SqlProjectRepo = Depends(get_project_repo),
+    branches: SqlBranchRepo = Depends(get_branch_repo_v2),
+    beats: SqlBeatRepo = Depends(get_beat_repo),
+    user: UserContext = Depends(get_current_user),
+) -> None:
+    project = await projects.get(project_id, owner_id=user.user_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    branch = await branches.get(branch_id, project_id=project_id)
+    if branch is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
+    if not await beats.delete(beat_id, branch_id=branch_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Beat not found")
+
+
 # Characters
 
 @router_v2.get("/projects/{project_id}/characters", response_model=list[Character])

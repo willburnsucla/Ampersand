@@ -45,7 +45,7 @@ function toLocal(beats: Beat[]): LocalBeat[] {
     }));
 }
 
-export function BeatGraph({ beats }: { beats: Beat[] }) {
+export function BeatGraph({ beats, onDeleteBeat }: { beats: Beat[]; onDeleteBeat?: (id: string) => void }) {
   const [local, setLocal] = useState<LocalBeat[]>(() => toLocal(beats));
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
@@ -92,7 +92,8 @@ export function BeatGraph({ beats }: { beats: Beat[] }) {
   };
 
   const deleteBeat = (id: string) => {
-    setLocal(prev => prev.filter(b => b.id !== id).map((b, i) => ({ ...b, order: i })));
+    setLocal(prev => prev.filter(b => b.id !== id).map((b, i) => ({ ...b, order: i })));  // optimistic
+    onDeleteBeat?.(id);  // persist; the parent refetches so a failure reverts
   };
 
   const onDragStart = (id: string) => { dragIdRef.current = id; };

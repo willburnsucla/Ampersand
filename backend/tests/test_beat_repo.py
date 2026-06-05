@@ -6,6 +6,7 @@ import sqlalchemy.exc
 
 from app.domain.orm_v2 import BranchOrm, ProjectOrm
 from app.repos.beat_repo import SqlBeatRepo
+from app.repos.character_repo import SqlCharacterRepo
 
 
 # Branch helper for our beats
@@ -137,3 +138,50 @@ async def test_create_duplicate_sequence_index_raises(db_session):
     await repo.create(branch_id=branch.id, sequence_index_in_branch=1, logline="first")
     with pytest.raises(sqlalchemy.exc.IntegrityError):
         await repo.create(branch_id=branch.id, sequence_index_in_branch=1, logline="dup")
+
+
+# delete removes the beat for good, so a re-list does not bring it back
+async def test_delete_removes_the_beat(db_session):
+    branch = await _make_branch(db_session)
+    repo = SqlBeatRepo(db_session)
+    created = await repo.create(
+        branch_id=branch.id, sequence_index_in_branch=1, logline="gone soon"
+    )
+
+    assert await repo.delete(created.id, branch_id=branch.id) is True
+    assert await repo.get(created.id, branch_id=branch.id) is None
+    assert await repo.list(branch_id=branch.id) == []
+
+
+# deleting with the wrong branch is a no-op, the beat stays
+async def test_delete_is_branch_scoped(db_session):
+    branch_a = await _make_branch(db_session)
+    branch_b = await _make_branch(db_session)
+    repo = SqlBeatRepo(db_session)
+    created = await repo.create(
+        branch_id=branch_a.id, sequence_index_in_branch=1, logline="keep me"
+    )
+
+    assert await repo.delete(created.id, branch_id=branch_b.id) is False
+    assert await repo.get(created.id, branch_id=branch_a.id) is not None
+
+
+async def test_delete_nonexistent_returns_false(db_session):
+    branch = await _make_branch(db_session)
+    repo = SqlBeatRepo(db_session)
+    assert await repo.delete(uuid.uuid4(), branch_id=branch.id) is False
+
+
+# a beat with entity links deletes cleanly: the links cascade, no FK error
+async def test_delete_cascades_entity_links(db_session):
+    branch = await _make_branch(db_session)
+    beats = SqlBeatRepo(db_session)
+    chars = SqlCharacterRepo(db_session)
+    beat = await beats.create(
+        branch_id=branch.id, sequence_index_in_branch=1, logline="Maya enters"
+    )
+    maya = await chars.create(project_id=branch.project_id, name="Maya")
+    await chars.link_to_beat(beat_id=beat.id, character_id=maya.id)
+
+    assert await beats.delete(beat.id, branch_id=branch.id) is True
+    assert await chars.list_for_beat(beat.id, project_id=branch.project_id) == []
