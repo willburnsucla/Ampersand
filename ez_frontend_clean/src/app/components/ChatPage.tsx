@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { User, Send, Sparkles, BookOpen, GitBranch, LogOut } from 'lucide-react';
-import { getOrCreateSession, listBeats, sendTurn } from '../../lib/api-client';
+import { forkBranch, getOrCreateSession, listBeats, listBranches, sendTurn } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth';
-import type { Beat } from '../../lib/types';
+import type { Beat, Branch } from '../../lib/types';
 import { BeatGraph } from './BeatGraph';
 
 interface Message {
@@ -33,6 +33,9 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [beats, setBeats] = useState<Beat[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
+  const [forking, setForking] = useState(false);
 
   const sessionRef = useRef<{ projectId: string; branchId: string } | null>(null);
   const isSendingRef = useRef(false);
@@ -47,15 +50,53 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
     }
   };
 
+  const refreshBranches = async (projectId: string) => {
+    try {
+      setBranches(await listBranches(projectId));
+    } catch (err) {
+      console.error('Failed to fetch branches:', err);
+    }
+  };
+
+  const switchBranch = async (branchId: string) => {
+    if (!sessionRef.current || branchId === sessionRef.current.branchId) return;
+    sessionRef.current = { ...sessionRef.current, branchId };
+    setActiveBranchId(branchId);
+    await refreshBeats(sessionRef.current);
+  };
+
+  const handleFork = async () => {
+    if (!sessionRef.current || forking || beats.length === 0) return;
+    setForking(true);
+    try {
+      const lastBeat = beats[beats.length - 1];
+      const created = await forkBranch({
+        project_id: sessionRef.current.projectId,
+        parent_branch_id: sessionRef.current.branchId,
+        from_beat_id: lastBeat.id,
+        name: `alt ${branches.length}`,
+      });
+      await refreshBranches(sessionRef.current.projectId);
+      await switchBranch(created.id);
+    } catch (err) {
+      console.error('Fork failed:', err);
+      setError('Could not fork a new branch.');
+    } finally {
+      setForking(false);
+    }
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
   useEffect(() => {
     getOrCreateSession('My Ampersand Story')
-      .then((session) => {
+      .then(async (session) => {
         sessionRef.current = session;
-        return refreshBeats(session);
+        setActiveBranchId(session.branchId);
+        await refreshBeats(session);
+        await refreshBranches(session.projectId);
       })
       .catch((err) => {
         console.error('Failed to create session:', err);
@@ -255,6 +296,32 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
               </span>
             )}
           </div>
+          {branches.length > 0 && (
+            <div className="px-4 py-2 border-b border-border flex items-center gap-2 flex-shrink-0 overflow-x-auto">
+              {branches.map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => switchBranch(b.id)}
+                  className={`text-xs px-2 py-1 rounded-full whitespace-nowrap transition-colors ${
+                    b.id === activeBranchId
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary hover:bg-accent'
+                  }`}
+                >
+                  {b.name || 'branch'}
+                </button>
+              ))}
+              <button
+                onClick={handleFork}
+                disabled={forking || beats.length === 0}
+                title="Fork an alternate timeline from the latest beat"
+                className="ml-auto text-xs px-2 py-1 rounded-full bg-secondary hover:bg-accent flex items-center gap-1 disabled:opacity-50 whitespace-nowrap"
+              >
+                <GitBranch className="w-3 h-3" />
+                {forking ? 'Forking…' : 'Fork'}
+              </button>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto pt-4">
             <BeatGraph beats={beats} />
           </div>

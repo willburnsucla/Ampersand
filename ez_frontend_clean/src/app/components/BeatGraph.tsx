@@ -52,11 +52,17 @@ export function BeatGraph({ beats }: { beats: Beat[] }) {
 
   useEffect(() => {
     setLocal(prev => {
-      const existingIds = new Set(prev.map(b => b.id));
       const incoming = toLocal(beats);
-      const newOnes = incoming.filter(b => !existingIds.has(b.id));
-      if (newOnes.length === 0) return prev;
-      return [...prev, ...newOnes].map((b, i) => ({ ...b, order: i }));
+      const incomingIds = new Set(incoming.map(b => b.id));
+      const prevIds = new Set(prev.map(b => b.id));
+      // reconcile to the current branch: keep beats still present (preserving any local
+      // drag order or edits), append new ones, and drop beats no longer here. switching
+      // branches replaces every id, so this swaps the whole graph instead of piling the
+      // old branch's beats onto the new one.
+      const kept = prev.filter(b => incomingIds.has(b.id));
+      const added = incoming.filter(b => !prevIds.has(b.id));
+      if (added.length === 0 && kept.length === prev.length) return prev;
+      return [...kept, ...added].map((b, i) => ({ ...b, order: i }));
     });
   }, [beats]);
 
