@@ -1,10 +1,5 @@
 import type { Beat } from "../../lib/types";
 
-const NODE_W = 130;
-const NODE_H = 60;
-const GAP = 36;
-const PAD = 12;
-
 export function BeatGraph({ beats }: { beats: Beat[] }) {
   const sorted = [...beats].sort(
     (a, b) => a.sequence_index_in_branch - b.sequence_index_in_branch
@@ -12,95 +7,40 @@ export function BeatGraph({ beats }: { beats: Beat[] }) {
 
   if (sorted.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground text-center py-6">
-        No beats yet — send a message to add one.
-      </p>
+      <div className="flex flex-col items-center justify-center py-10 text-center px-6">
+        <p className="text-sm text-muted-foreground">
+          No beats yet — send a message to add one.
+        </p>
+      </div>
     );
   }
 
-  const svgW = PAD + sorted.length * NODE_W + (sorted.length - 1) * GAP + PAD;
-  const svgH = NODE_H + PAD * 2;
-  const cy = PAD + NODE_H / 2;
-
   return (
-    <div className="overflow-x-auto">
-      <svg width={svgW} height={svgH}>
-        <defs>
-          <marker
-            id="beat-arrow"
-            markerWidth="7"
-            markerHeight="7"
-            refX="6"
-            refY="3.5"
-            orient="auto"
-          >
-            <path d="M0,0 L0,7 L7,3.5 z" fill="var(--border)" />
-          </marker>
-        </defs>
+    <div className="px-4 pb-4">
+      {sorted.map((beat, i) => (
+        <div key={beat.id} className="flex gap-3">
+          {/* Spine: circle + connector line */}
+          <div className="flex flex-col items-center flex-shrink-0 w-6">
+            <div className="w-6 h-6 rounded-full bg-primary/10 border-2 border-primary flex items-center justify-center flex-shrink-0">
+              <span className="text-[9px] font-bold text-primary leading-none">
+                {beat.sequence_index_in_branch + 1}
+              </span>
+            </div>
+            {i < sorted.length - 1 && (
+              <div className="w-px flex-1 bg-border my-1 min-h-[12px]" />
+            )}
+          </div>
 
-        {sorted.map((beat, i) => {
-          const x = PAD + i * (NODE_W + GAP);
-          return (
-            <g key={beat.id}>
-              {i > 0 && (
-                <line
-                  x1={x - GAP + 2}
-                  y1={cy}
-                  x2={x - 2}
-                  y2={cy}
-                  stroke="var(--border)"
-                  strokeWidth={2}
-                  markerEnd="url(#beat-arrow)"
-                />
-              )}
-
-              <rect
-                x={x}
-                y={PAD}
-                width={NODE_W}
-                height={NODE_H}
-                rx={8}
-                fill="var(--card)"
-                stroke="var(--primary)"
-                strokeWidth={1.5}
-              />
-
-              <text
-                x={x + 8}
-                y={PAD + 13}
-                fontSize={9}
-                fill="var(--primary)"
-                fontFamily="inherit"
-                fontWeight="600"
-              >
-                Beat {beat.sequence_index_in_branch + 1}
-              </text>
-
-              <foreignObject
-                x={x + 4}
-                y={PAD + 18}
-                width={NODE_W - 8}
-                height={NODE_H - 22}
-              >
-                <div
-                  style={{
-                    fontSize: "10px",
-                    lineHeight: "1.35",
-                    overflow: "hidden",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: "vertical",
-                    color: "var(--foreground)",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  {beat.logline}
-                </div>
-              </foreignObject>
-            </g>
-          );
-        })}
-      </svg>
+          {/* Beat card */}
+          <div className={`flex-1 ${i < sorted.length - 1 ? "pb-3" : ""}`}>
+            <div className="rounded-lg border border-border bg-background/50 px-3 py-2">
+              <p className="text-xs leading-relaxed text-foreground">
+                {beat.logline}
+              </p>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
