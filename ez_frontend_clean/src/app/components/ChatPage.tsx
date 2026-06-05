@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { User, Send, Sparkles, BookOpen, GitBranch } from 'lucide-react';
+import { User, Send, Sparkles, BookOpen, GitBranch, LogOut } from 'lucide-react';
 import { getOrCreateSession, listBeats, sendTurn } from '../../lib/api-client';
+import { useAuth } from '../../lib/auth';
 import type { Beat } from '../../lib/types';
 import { BeatGraph } from './BeatGraph';
 
@@ -20,6 +21,7 @@ const examplePrompts = [
 ];
 
 export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void }) {
+  const { signOut } = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -123,13 +125,22 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
               <h1 className="text-3xl">Ampersand</h1>
             </div>
           </div>
-          <button
-            onClick={onNavigateProfile}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-accent transition-colors"
-          >
-            <User className="w-4 h-4" />
-            <span>Profile</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onNavigateProfile}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-accent transition-colors"
+            >
+              <User className="w-4 h-4" />
+              <span>Profile</span>
+            </button>
+            <button
+              onClick={signOut}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary hover:bg-accent transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sign out</span>
+            </button>
+          </div>
         </header>
 
         {/* Error banner */}
