@@ -1,8 +1,9 @@
-"""Extractor v2: prose to a proposed beat.
+"""Extractor v2: prose to proposed beats.
 
-MockExtractorV2 is deterministic with no external calls. GeminiExtractorV2 does real
-extraction over the Gemini API. Both sit behind the ExtractorV2 abc; the orchestrator
-depends on the abc, never a concrete extractor.
+MockExtractorV2 is deterministic with no external calls (one beat per non-empty line).
+GeminiExtractorV2 does real extraction over the Gemini API and can break a passage into
+several beats. Both sit behind the ExtractorV2 abc; the orchestrator depends on the abc,
+never a concrete extractor.
 """
 from __future__ import annotations
 
@@ -64,7 +65,7 @@ class ProposedBeat(BaseModel):
 
 class ExtractionResultV2(BaseModel):
     reply: str
-    proposed_beat: ProposedBeat | None = None
+    proposed_beats: list[ProposedBeat] = Field(default_factory=list)
 
 
 class ExtractorV2(ABC):
@@ -88,23 +89,27 @@ def _matches(text: str, table: dict[str, str]) -> list[str]:
 class MockExtractorV2(ExtractorV2):
     """Deterministic extractor for dev and tests.
 
-    The logline is the writer's message trimmed to one line; entities come from a
-    fixed keyword table, so the same message always yields the same beat.
+    One beat per non-empty line of the message, so a multi-line passage becomes several
+    beats. Entities come from a fixed keyword table, so the same message always yields the
+    same beats.
     """
 
     async def extract(self, ctx: LlmContextV2) -> ExtractionResultV2:
-        text = ctx.user_message.strip()
-        lowered = text.lower()
-        logline = text.splitlines()[0][:200] if text else "Untitled beat"
-
-        proposed = ProposedBeat(
-            logline=logline,
-            character_names=_matches(lowered, _CHARACTERS),
-            theme_names=_matches(lowered, _THEMES),
-            setting_names=_matches(lowered, _SETTINGS),
-        )
-        reply = f'Drafted a beat from that: "{logline}". Want to keep it?'
-        return ExtractionResultV2(reply=reply, proposed_beat=proposed)
+        lines = [ln.strip() for ln in ctx.user_message.splitlines() if ln.strip()]
+        if not lines:
+            lines = ["Untitled beat"]
+        beats = [
+            ProposedBeat(
+                logline=line[:200],
+                character_names=_matches(line.lower(), _CHARACTERS),
+                theme_names=_matches(line.lower(), _THEMES),
+                setting_names=_matches(line.lower(), _SETTINGS),
+            )
+            for line in lines
+        ]
+        plural = "s" if len(beats) != 1 else ""
+        reply = f"Drafted {len(beats)} beat{plural} from that."
+        return ExtractionResultV2(reply=reply, proposed_beats=beats)
 
 
 # ── Gemini ────────────────────────────────────────────────────────────────────
@@ -112,13 +117,10 @@ class MockExtractorV2(ExtractorV2):
 _DEGRADE_REPLY = "I couldn't shape that into a beat. Tell me a bit more about what happens?"
 
 
-class _GeminiBeatArgs(BaseModel):
-    """Structured-output schema handed to Gemini: a ProposedBeat plus a reply. Omits the
-    free-form content dict, which Gemini's response schema does not model well; the
-    DeltaApplier fills content in later.
-    """
+class _GeminiBeat(BaseModel):
+    """One beat in Gemini's structured output. No content dict (Gemini's response schema
+    does not model a free-form object well; the DeltaApplier fills content in later)."""
 
-    reply: str
     logline: str
     turning_point: TurningPoint | None = None
     valence: float | None = Field(default=None, ge=0, le=1)
@@ -126,6 +128,13 @@ class _GeminiBeatArgs(BaseModel):
     character_names: list[str] = Field(default_factory=list)
     theme_names: list[str] = Field(default_factory=list)
     setting_names: list[str] = Field(default_factory=list)
+
+
+class _GeminiExtraction(BaseModel):
+    """The whole structured response: the beats in order, plus one reply to the writer."""
+
+    reply: str
+    beats: list[_GeminiBeat] = Field(default_factory=list)
 
 
 def _system_prompt(ctx: LlmContextV2) -> str:
@@ -136,9 +145,12 @@ def _system_prompt(ctx: LlmContextV2) -> str:
 
     recent = " / ".join(b.logline for b in ctx.recent_beats[-5:]) or "none yet"
     return (
-        "You turn a writer's prose into exactly one structured story beat. Reuse these "
-        "existing names when they fit, and score valence and arousal together (both in "
-        "0..1) or leave both unset.\n"
+        "You read a writer's prose and break it into the story beats it contains, in the "
+        "order they happen. A short line is usually one beat; a long passage is several, "
+        "one per distinct moment. For each beat give a one-sentence logline and the "
+        "characters, themes, and settings it involves, reusing the existing names below "
+        "when they fit. Score valence and arousal together (both 0..1) or leave both "
+        "unset. Also give one short overall reply to the writer.\n"
         f"Characters: {names(ctx.characters)}\n"
         f"Themes: {names(ctx.themes)}\n"
         f"Settings: {names(ctx.settings)}\n"
@@ -146,25 +158,14 @@ def _system_prompt(ctx: LlmContextV2) -> str:
     )
 
 
-def _parse_beat(args: dict[str, Any]) -> ExtractionResultV2 | None:
-    # pull the reply, validate the rest as a ProposedBeat. a malformed or out-of-range
-    # beat raises and returns None, which the caller turns into an escalation.
-    reply = args.pop("reply", "")
-    try:
-        proposed = ProposedBeat.model_validate(args)
-    except ValidationError:
-        return None
-    return ExtractionResultV2(reply=reply or "Drafted a beat from that.", proposed_beat=proposed)
-
-
 class GeminiExtractorV2(ExtractorV2):
     """Real extraction over Gemini (native google-genai), behind the same ExtractorV2 abc.
 
-    Asks for structured json matching _GeminiBeatArgs, parses it into a ProposedBeat, tries
-    a fast model and escalates once to a stronger one if the first reply has no usable beat
-    (no json, or a beat that fails validation such as a half-set or out-of-range affect
-    pair). If both fail it returns a reply with no beat, so a bad turn degrades instead of
-    500ing. Only content failures degrade; an api error (network, auth, quota) propagates.
+    Asks gemini for structured json (a reply plus a list of beats), validates each beat
+    into a ProposedBeat and keeps the good ones. Tries a fast model and escalates once to
+    a stronger one if it gets nothing usable; if both fail it returns a reply with no
+    beats, so a bad turn degrades instead of 500ing. Only content failures degrade; an api
+    error (network, auth, quota) propagates.
 
     The google-genai sdk is imported only in this module. The client is injectable so tests
     run with no network.
@@ -189,7 +190,7 @@ class GeminiExtractorV2(ExtractorV2):
             result = await self._extract_once(model, system, ctx.user_message)
             if result is not None:
                 return result
-        return ExtractionResultV2(reply=_DEGRADE_REPLY, proposed_beat=None)
+        return ExtractionResultV2(reply=_DEGRADE_REPLY, proposed_beats=[])
 
     async def _extract_once(
         self, model: str, system: str, user_message: str
@@ -200,7 +201,7 @@ class GeminiExtractorV2(ExtractorV2):
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 response_mime_type="application/json",
-                response_schema=_GeminiBeatArgs,
+                response_schema=_GeminiExtraction,
             ),
         )
         text = getattr(response, "text", None)
@@ -210,4 +211,14 @@ class GeminiExtractorV2(ExtractorV2):
             data = json.loads(text)
         except (json.JSONDecodeError, TypeError):
             return None
-        return _parse_beat(data)
+
+        beats: list[ProposedBeat] = []
+        for raw in data.get("beats", []):
+            try:
+                beats.append(ProposedBeat.model_validate(raw))
+            except ValidationError:
+                continue  # drop one malformed beat, keep the rest of the passage
+        if not beats:
+            return None  # nothing usable, escalate
+        reply = data.get("reply") or f"Drafted {len(beats)} beats."
+        return ExtractionResultV2(reply=reply, proposed_beats=beats)
