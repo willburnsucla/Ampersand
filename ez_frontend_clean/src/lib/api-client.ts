@@ -59,6 +59,18 @@ export async function createBranch(input: {
   });
 }
 
+export async function forkBranch(input: {
+  project_id: string;
+  parent_branch_id: string;
+  from_beat_id: string;
+  name?: string | null;
+}): Promise<Branch> {
+  return request<Branch>("/branches/fork", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function listBeats(projectId: string, branchId: string): Promise<Beat[]> {
   return request<Beat[]>(`/projects/${projectId}/branches/${branchId}/beats`);
 }
