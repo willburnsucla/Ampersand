@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { User, Send, Sparkles, BookOpen, BarChart3, TrendingUp, Users } from 'lucide-react';
-import { LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
-import { getOrCreateSession, sendTurn } from '../../lib/api-client';
+import { User, Send, Sparkles, BookOpen, GitBranch } from 'lucide-react';
+import { getOrCreateSession, listBeats, sendTurn } from '../../lib/api-client';
+import type { Beat } from '../../lib/types';
+import { BeatGraph } from './BeatGraph';
 
 interface Message {
   id: string;
@@ -18,20 +19,6 @@ const examplePrompts = [
   "Analyze the pacing of my current chapter",
 ];
 
-const mockPaceData = [
-  { point: '1', tension: 65 },
-  { point: '2', tension: 72 },
-  { point: '3', tension: 85 },
-  { point: '4', tension: 78 },
-];
-
-const mockCharacterData = [
-  { subject: 'Depth', value: 75 },
-  { subject: 'Voice', value: 82 },
-  { subject: 'Arc', value: 70 },
-  { subject: 'Motivation', value: 78 },
-];
-
 export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void }) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -43,15 +30,27 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [hasEnoughData, setHasEnoughData] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [beats, setBeats] = useState<Beat[]>([]);
 
-  const sessionRef = useRef<{ storyId: string; branchId: string } | null>(null);
+  const sessionRef = useRef<{ projectId: string; branchId: string } | null>(null);
   const isSendingRef = useRef(false);
+
+  const refreshBeats = async (session: { projectId: string; branchId: string }) => {
+    try {
+      const fetched = await listBeats(session.projectId, session.branchId);
+      setBeats(fetched);
+    } catch (err) {
+      console.error('Failed to fetch beats:', err);
+    }
+  };
 
   useEffect(() => {
     getOrCreateSession('My Ampersand Story')
-      .then((session) => { sessionRef.current = session; })
+      .then((session) => {
+        sessionRef.current = session;
+        return refreshBeats(session);
+      })
       .catch((err) => {
         console.error('Failed to create session:', err);
         setError('Could not connect to the backend. Is the server running?');
@@ -81,23 +80,23 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
 
     try {
       const result = await sendTurn({
-        story_id: sessionRef.current.storyId,
+        project_id: sessionRef.current.projectId,
         branch_id: sessionRef.current.branchId,
         content: textToSend,
       });
 
       const aiMessage: Message = {
-        id: result.turn_id,
+        id: Date.now().toString(),
         role: 'assistant',
         content: result.reply,
         timestamp: new Date(),
       };
 
-      setMessages(prev => {
-        const updated = [...prev, aiMessage];
-        if (updated.length >= 6) setHasEnoughData(true);
-        return updated;
-      });
+      setMessages(prev => [...prev, aiMessage]);
+
+      if (sessionRef.current) {
+        await refreshBeats(sessionRef.current);
+      }
     } catch (err) {
       console.error('Turn failed:', err);
       setError('Failed to get a response. Please try again.');
@@ -220,92 +219,56 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
         </div>
       </div>
 
-      {/* Sidebar - Real-time Visuals */}
-      <div className="w-96 border-l border-border bg-card overflow-y-auto">
-        <div className="p-6 border-b border-border">
-          <div className="flex items-center gap-2 mb-2">
-            <BarChart3 className="w-5 h-5 text-primary" />
-            <h3 className="text-xl">Live Insights</h3>
+      {/* Sidebar */}
+      <div className="w-96 border-l border-border bg-card flex flex-col">
+
+        {/* Story Graph — takes all available vertical space */}
+        <div className="flex flex-col flex-1 min-h-0">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-primary" />
+              <span className="font-semibold text-sm">Story Graph</span>
+            </div>
+            {beats.length > 0 && (
+              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                {beats.length} beat{beats.length !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
-          <p className="text-sm text-muted-foreground">Real-time analysis of your conversation</p>
+          <div className="flex-1 overflow-y-auto pt-4">
+            <BeatGraph beats={beats} />
+          </div>
         </div>
 
-        <div className="p-6 space-y-6">
-          {!hasEnoughData ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-4">
-                <Sparkles className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <h4 className="mb-2">No data yet</h4>
-              <p className="text-sm text-muted-foreground max-w-xs">
-                Keep chatting about your story and I'll start generating insights and visualizations based on our conversation.
+        {/* Stats — compact fixed panel at the bottom */}
+        <div className="border-t border-border p-4 flex-shrink-0 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-lg bg-secondary/50 p-2 text-center">
+              <p className="text-lg font-semibold leading-none">{beats.length}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Beats</p>
+            </div>
+            <div className="rounded-lg bg-secondary/50 p-2 text-center">
+              <p className="text-lg font-semibold leading-none">{Math.max(0, Math.floor((messages.length - 1) / 2))}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Turns</p>
+            </div>
+            <div className="rounded-lg bg-secondary/50 p-2 text-center">
+              <p className="text-lg font-semibold leading-none">{messages.length}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Messages</p>
+            </div>
+          </div>
+
+          {messages.findLast(m => m.role === 'assistant') && (
+            <div className="border-l-2 border-primary pl-3">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                Latest response
+              </p>
+              <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                {messages.findLast(m => m.role === 'assistant')?.content}
               </p>
             </div>
-          ) : (
-            <>
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <TrendingUp className="w-4 h-4 text-primary" />
-                  <h4>Story Tension</h4>
-                </div>
-                <ResponsiveContainer width="100%" height={150}>
-                  <LineChart data={mockPaceData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="point" stroke="var(--muted-foreground)" fontSize={12} />
-                    <YAxis stroke="var(--muted-foreground)" fontSize={12} />
-                    <Line type="monotone" dataKey="tension" stroke="var(--chart-1)" strokeWidth={2} dot={{ r: 4 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Tension is building nicely through your plot points
-                </p>
-              </div>
-
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Users className="w-4 h-4 text-primary" />
-                  <h4>Character Analysis</h4>
-                </div>
-                <ResponsiveContainer width="100%" height={150}>
-                  <RadarChart data={mockCharacterData}>
-                    <PolarGrid stroke="var(--border)" />
-                    <PolarAngleAxis dataKey="subject" stroke="var(--muted-foreground)" fontSize={10} />
-                    <PolarRadiusAxis stroke="var(--muted-foreground)" fontSize={10} />
-                    <Radar dataKey="value" stroke="var(--chart-1)" fill="var(--chart-1)" fillOpacity={0.3} />
-                  </RadarChart>
-                </ResponsiveContainer>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Your protagonist shows strong character voice
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <h4>Session Stats</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center p-3 rounded-lg bg-secondary/50">
-                    <span className="text-sm">Messages</span>
-                    <span className="font-medium">{messages.length}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 rounded-lg bg-secondary/50">
-                    <span className="text-sm">Topics Discussed</span>
-                    <span className="font-medium">{Math.floor(messages.length / 2)}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 rounded-lg bg-secondary/50">
-                    <span className="text-sm">Story Elements</span>
-                    <span className="font-medium">{Math.max(1, messages.length - 2)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-l-4 border-primary pl-4">
-                <h4 className="mb-2 text-sm">Latest Insight</h4>
-                <p className="text-sm text-muted-foreground">
-                  {messages.findLast(m => m.role === 'assistant')?.content ?? 'Keep writing to generate insights.'}
-                </p>
-              </div>
-            </>
           )}
         </div>
+
       </div>
     </div>
   );
