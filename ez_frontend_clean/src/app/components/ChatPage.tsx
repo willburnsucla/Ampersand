@@ -12,11 +12,10 @@ interface Message {
 }
 
 const examplePrompts = [
-  "Write a mystery story set in a Victorian mansion",
-  "Develop a character with a complex backstory",
-  "Create a plot outline for a sci-fi adventure",
-  "Help me brainstorm themes for my fantasy novel",
-  "Analyze the pacing of my current chapter",
+  "Luke buys two droids on Tatooine. R2-D2 plays a message from Princess Leia. Luke seeks out old Ben Kenobi.",
+  "Maya the detective steps into the dark forest, hunting her sister's killer.",
+  "The old wizard reaches the castle gates at midnight, carrying a sealed letter.",
+  "Two ships meet in the harbor at dawn, one carrying a dangerous secret.",
 ];
 
 export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void }) {
@@ -24,7 +23,7 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
     {
       id: '1',
       role: 'assistant',
-      content: 'Welcome to Ampersand. I\'m here to help bring your stories to life. What would you like to create today?',
+      content: 'Welcome to Ampersand. Paste your writing and I\'ll organize it into beats and a story graph. I structure what you wrote, I don\'t write it for you.',
       timestamp: new Date(),
     },
   ]);
@@ -185,7 +184,7 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
           {/* Example Prompts - Show only at start */}
           {messages.length <= 1 && !isLoading && (
             <div className="w-full space-y-4">
-              <p className="text-muted-foreground text-center mb-4">Try one of these prompts to get started:</p>
+              <p className="text-muted-foreground text-center mb-4">Or try one of these passages to see the beats:</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {examplePrompts.map((prompt, index) => (
                   <button
