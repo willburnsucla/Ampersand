@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { User, Send, Sparkles, BookOpen, GitBranch, LogOut } from 'lucide-react';
-import { forkBranch, getOrCreateSession, listBeats, listBranches, sendTurn } from '../../lib/api-client';
+import { deleteBeat, forkBranch, getOrCreateSession, listBeats, listBranches, sendTurn } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth';
 import type { Beat, Branch } from '../../lib/types';
 import { BeatGraph } from './BeatGraph';
@@ -84,6 +84,18 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
     } finally {
       setForking(false);
     }
+  };
+
+  const handleDeleteBeat = async (beatId: string) => {
+    if (!sessionRef.current) return;
+    const session = sessionRef.current;
+    try {
+      await deleteBeat(session.projectId, session.branchId, beatId);
+    } catch (err) {
+      console.error('Delete beat failed:', err);
+      setError('Could not delete that beat.');
+    }
+    await refreshBeats(session);  // resync either way, so a failed delete puts the beat back
   };
 
   useEffect(() => {
@@ -323,7 +335,7 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
             </div>
           )}
           <div className="flex-1 overflow-y-auto pt-4">
-            <BeatGraph beats={beats} />
+            <BeatGraph beats={beats} onDeleteBeat={handleDeleteBeat} />
           </div>
         </div>
 

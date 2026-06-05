@@ -75,6 +75,12 @@ export async function listBeats(projectId: string, branchId: string): Promise<Be
   return request<Beat[]>(`/projects/${projectId}/branches/${branchId}/beats`);
 }
 
+export async function deleteBeat(projectId: string, branchId: string, beatId: string): Promise<void> {
+  await request<void>(`/projects/${projectId}/branches/${branchId}/beats/${beatId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function listBranches(projectId: string): Promise<Branch[]> {
   return request<Branch[]>(`/projects/${projectId}/branches`);
 }

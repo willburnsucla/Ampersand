@@ -15,6 +15,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from uuid import UUID
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,6 +61,9 @@ class BeatRepo(ABC):
 
     @abstractmethod
     async def set_status(self, beat_id: UUID, status: str, *, branch_id: UUID) -> Beat: ...
+
+    @abstractmethod
+    async def delete(self, beat_id: UUID, *, branch_id: UUID) -> bool: ...
 
 class SqlBeatRepo(BeatRepo):
     def __init__(self, session: AsyncSession) -> None:
@@ -120,6 +124,13 @@ class SqlBeatRepo(BeatRepo):
         await self._session.refresh(row)
         return _to_beat(row)
 
+    async def delete(self, beat_id: UUID, *, branch_id: UUID) -> bool:
+        # the beat_* link rows cascade (ondelete CASCADE) and a fork's created_from_beat_id
+        # nulls out (ondelete SET NULL), so deleting the beat row is enough.
+        stmt = sa_delete(BeatOrm).where(BeatOrm.id == beat_id, BeatOrm.branch_id == branch_id)
+        result = await self._session.execute(stmt)
+        return result.rowcount > 0
+
 
 class InMemoryBeatRepo(BeatRepo):
     """In-memory BeatRepo for mock mode."""
@@ -175,3 +186,10 @@ class InMemoryBeatRepo(BeatRepo):
             raise ValueError(f"beat {beat_id} not found in this branch")
         row.status = status
         return row.model_copy(deep=True)
+
+    async def delete(self, beat_id: UUID, *, branch_id: UUID) -> bool:
+        row = self._beats.get(beat_id)
+        if row is None or row.branch_id != branch_id:
+            return False
+        del self._beats[beat_id]
+        return True
