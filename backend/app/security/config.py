@@ -55,6 +55,8 @@ SUSPICIOUS_PATTERNS: Final[list[tuple[str, ...]]] = [
     ("ignore", "system prompt"),
     ("ignore", "rules"),
     ("ignore", "instructions"),
+    ("forget", "instructions"),
+    ("forget", "system"),
     ("forget", "story"),
     ("disregard", "character"),
     ("disregard", "instructions"),

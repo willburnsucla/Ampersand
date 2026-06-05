@@ -95,16 +95,20 @@ class InjectionDetector:
         if not text:
             return 0.0, []
 
-        # Try ML-based detection first
+        heuristic_score, matched = self._score_suspicion_heuristic(text)
+
+        # ML acts as a second signal; heuristic acts as a hard floor.
+        # Take the max so known-bad patterns always trigger even if ML under-scores them.
         if self.ml_classifier:
             ml_score = self.ml_classifier.score(text)
             if ml_score is not None:
                 if VERBOSE_LOGGING:
-                    logger.debug(f"Using ML classifier: score={ml_score:.2f}")
-                return ml_score, ["detection_method: ML"]
+                    logger.debug(f"ML score={ml_score:.2f}, heuristic score={heuristic_score:.2f}")
+                if ml_score >= heuristic_score:
+                    return ml_score, ["detection_method: ML"]
+                return heuristic_score, matched
 
-        # Fall back to heuristic scoring
-        return self._score_suspicion_heuristic(text)
+        return heuristic_score, matched
 
     def _score_suspicion_heuristic(self, text: str) -> tuple[float, list[str]]:
         """
