@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, MessageSquare, BookOpen, TrendingUp, Search, Plus, X, Loader2 } from 'lucide-react';
-import { listProjects, createProject, createBranch, clearSession } from '../../lib/api-client';
+import { ArrowLeft, MessageSquare, BookOpen, TrendingUp, Search, Plus, X, Loader2, Trash2 } from 'lucide-react';
+import { listProjects, createProject, createBranch, clearSession, deleteProject } from '../../lib/api-client';
 import type { Project } from '../../lib/types';
 
 interface NewStoryFormProps {
@@ -91,6 +91,17 @@ export function ProfilePage({ onNavigateBack, onNavigateStory, onStartNewStory }
     setShowNewForm(false);
     clearSession();
     onStartNewStory(project);
+  };
+
+  const handleDelete = async (e: React.MouseEvent, projectId: string) => {
+    e.stopPropagation();
+    if (!confirm('Delete this story? This cannot be undone.')) return;
+    try {
+      await deleteProject(projectId);
+      setStories(prev => prev.filter(s => s.id !== projectId));
+    } catch {
+      setError('Failed to delete story.');
+    }
   };
 
   return (
@@ -213,18 +224,27 @@ export function ProfilePage({ onNavigateBack, onNavigateStory, onStartNewStory }
           ) : (
             <div className="space-y-4">
               {filteredStories.map(story => (
-                <button
+                <div
                   key={story.id}
                   onClick={() => onNavigateStory(story)}
-                  className="w-full bg-card border border-border rounded-xl p-6 hover:border-primary transition-colors text-left group"
+                  className="w-full bg-card border border-border rounded-xl p-6 hover:border-primary transition-colors text-left group cursor-pointer"
                 >
                   <div className="flex items-start justify-between mb-3">
                     <h3 className="text-xl group-hover:text-primary transition-colors">{story.title}</h3>
-                    <span className="text-sm text-muted-foreground flex-shrink-0 ml-4">
-                      {new Date(story.created_at).toLocaleDateString(undefined, {
-                        month: 'short', day: 'numeric', year: 'numeric',
-                      })}
-                    </span>
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                      <span className="text-sm text-muted-foreground">
+                        {new Date(story.created_at).toLocaleDateString(undefined, {
+                          month: 'short', day: 'numeric', year: 'numeric',
+                        })}
+                      </span>
+                      <button
+                        onClick={(e) => handleDelete(e, story.id)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete story"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                   <div className="flex items-center gap-3 text-sm text-muted-foreground">
                     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -236,7 +256,7 @@ export function ProfilePage({ onNavigateBack, onNavigateStory, onStartNewStory }
                     </span>
                     <span className="text-xs">Click to view analysis →</span>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           )}
