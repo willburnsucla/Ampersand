@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from typing import Any
 from uuid import UUID
@@ -30,9 +31,10 @@ from app.domain.models_v2 import (
 
 logger = logging.getLogger(__name__)
 
-# transient gemini errors worth retrying before giving up (high-demand 503s, rate-limit
-# 429s); a spike usually clears within a second or two.
-_TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
+# transient gemini errors worth retrying: server-side 5xx spikes that usually clear in a
+# second or two. quota/billing 429s are NOT retried (retrying burns api credits and won't
+# recover until billing is fixed); they drop straight to the fallback extractor.
+_TRANSIENT_STATUS = frozenset({500, 502, 503, 504})
 _MAX_ATTEMPTS = 4
 _RETRY_BASE_SECONDS = 1.0
 
@@ -96,29 +98,40 @@ def _matches(text: str, table: dict[str, str]) -> list[str]:
     return [name for kw, name in table.items() if kw in text]
 
 
-class MockExtractorV2(ExtractorV2):
-    """Deterministic extractor for dev and tests.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
-    One beat per non-empty line of the message, so a multi-line passage becomes several
-    beats. Entities come from a fixed keyword table, so the same message always yields the
-    same beats.
+
+def _segments(text: str) -> list[str]:
+    """Break a message into beat-sized pieces: one per line, then per sentence."""
+    pieces: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        pieces.extend(s.strip() for s in _SENTENCE_SPLIT.split(line) if s.strip())
+    return pieces or ["Untitled beat"]
+
+
+class MockExtractorV2(ExtractorV2):
+    """Deterministic extractor for dev, tests, and the gemini fallback.
+
+    One beat per sentence (split on lines, then sentence boundaries), so a pasted passage
+    becomes several beats. Entities come from a fixed keyword table, so the same message
+    always yields the same beats.
     """
 
     async def extract(self, ctx: LlmContextV2) -> ExtractionResultV2:
-        lines = [ln.strip() for ln in ctx.user_message.splitlines() if ln.strip()]
-        if not lines:
-            lines = ["Untitled beat"]
         beats = [
             ProposedBeat(
-                logline=line[:200],
-                character_names=_matches(line.lower(), _CHARACTERS),
-                theme_names=_matches(line.lower(), _THEMES),
-                setting_names=_matches(line.lower(), _SETTINGS),
+                logline=seg[:200],
+                character_names=_matches(seg.lower(), _CHARACTERS),
+                theme_names=_matches(seg.lower(), _THEMES),
+                setting_names=_matches(seg.lower(), _SETTINGS),
             )
-            for line in lines
+            for seg in _segments(ctx.user_message)
         ]
         plural = "s" if len(beats) != 1 else ""
-        reply = f"Drafted {len(beats)} beat{plural} from that."
+        reply = f"Organized into {len(beats)} beat{plural}."
         return ExtractionResultV2(reply=reply, proposed_beats=beats)
 
 
