@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Train ML-based injection detector using Voyager embeddings + logistic regression.
+Train ML-based injection detector using local embeddings + logistic regression.
 
 This script:
 1. Loads training data from injection_training_set.json
-2. Generates embeddings using Voyage AI
+2. Generates embeddings locally using sentence-transformers
 3. Trains a logistic regression classifier
 4. Evaluates accuracy on train/test split
 5. Saves the trained model for production use
 
 Usage:
-    VOYAGE_API_KEY=<key> python backend/scripts/train_injection_classifier.py
+    python backend/scripts/train_injection_classifier.py
 """
 
 import json
@@ -26,9 +26,9 @@ from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_
 from sklearn.model_selection import train_test_split
 
 try:
-    from voyageai import Client
+    from sentence_transformers import SentenceTransformer
 except ImportError:
-    print("Error: voyageai package not installed. Install with: pip install voyageai")
+    print("Error: sentence-transformers package not installed. Install with: pip install sentence-transformers")
     sys.exit(1)
 
 
@@ -43,21 +43,14 @@ def load_training_data(data_path: str) -> tuple[list[str], np.ndarray]:
     return texts, labels
 
 
-def get_embeddings(texts: list[str], api_key: str, batch_size: int = 100) -> np.ndarray:
-    """Fetch embeddings from Voyage AI API."""
-    client = Client(api_key=api_key)
+def get_embeddings(texts: list[str], model_name: str = "all-MiniLM-L6-v2") -> np.ndarray:
+    """Generate embeddings locally using sentence-transformers."""
+    print(f"Loading embedding model: {model_name}...")
+    model = SentenceTransformer(model_name)
 
-    embeddings = []
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i : i + batch_size]
-        print(f"Fetching embeddings for batch {i // batch_size + 1}/{(len(texts) + batch_size - 1) // batch_size}...")
-
-        response = client.embed(
-            texts=batch,
-            model="voyage-3",
-            input_type="query"
-        )
-        embeddings.extend(response.embeddings)
+    print("Generating embeddings...")
+    # normalize_embeddings=True must match inference in ml_classifier.py
+    embeddings = model.encode(texts, normalize_embeddings=True, batch_size=32, show_progress_bar=True)
 
     return np.array(embeddings)
 
@@ -83,16 +76,19 @@ def train_classifier(
     print("\nEvaluating on test set...")
     y_pred = classifier.predict(X_test)
 
+    cm = confusion_matrix(y_test, y_pred)
+    tn, fp, fn, tp = cm.ravel()
+
     metrics = {
         "train_accuracy": classifier.score(X_train, y_train),
         "test_accuracy": classifier.score(X_test, y_test),
         "precision": precision_score(y_test, y_pred),
-        "recall": recall_score(y_test, y_pred),  # TPR (true positive rate)
+        "recall": recall_score(y_test, y_pred),
         "f1": f1_score(y_test, y_pred),
-        "tn": confusion_matrix(y_test, y_pred)[0, 0],  # True negatives
-        "fp": confusion_matrix(y_test, y_pred)[0, 1],  # False positives (FPR = FP / (FP + TN))
-        "fn": confusion_matrix(y_test, y_pred)[1, 0],  # False negatives
-        "tp": confusion_matrix(y_test, y_pred)[1, 1],  # True positives
+        "tn": int(tn),
+        "fp": int(fp),
+        "fn": int(fn),
+        "tp": int(tp),
     }
 
     # Compute FPR
@@ -144,12 +140,6 @@ def print_metrics(metrics: dict) -> None:
 
 def main() -> None:
     """Main training pipeline."""
-    # Get API key
-    api_key = os.getenv("VOYAGE_API_KEY")
-    if not api_key:
-        print("Error: VOYAGE_API_KEY environment variable not set")
-        sys.exit(1)
-
     # Paths
     script_dir = Path(__file__).parent
     repo_root = script_dir.parent
@@ -169,9 +159,9 @@ def main() -> None:
     texts, labels = load_training_data(str(data_file))
     print(f"✓ Loaded {len(texts)} examples ({np.sum(labels)} injections, {len(labels) - np.sum(labels)} legitimate)")
 
-    # Get embeddings
-    print("\nGenerating Voyage embeddings...")
-    embeddings = get_embeddings(texts, api_key)
+    # Get embeddings (local, no API needed)
+    print("\nGenerating local embeddings...")
+    embeddings = get_embeddings(texts)
     print(f"✓ Generated {len(embeddings)} embeddings, dimension: {embeddings.shape[1]}")
 
     # Train classifier

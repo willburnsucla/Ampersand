@@ -1,11 +1,11 @@
-"""ML-based injection detection classifier using Voyage embeddings + logistic regression."""
+"""ML-based injection detection classifier using local embeddings + logistic regression."""
 
 import logging
 import os
 import pickle
 from typing import Optional
 
-from voyageai import Client
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -13,36 +13,32 @@ logger = logging.getLogger(__name__)
 class MLInjectionClassifier:
     """Classifies text for injection attempts using pre-trained ML model."""
 
-    def __init__(self, model_path: str, voyage_api_key: str, timeout_ms: int = 100):
+    def __init__(self, model_path: str, embedding_model_name: str = "all-MiniLM-L6-v2", timeout_ms: int = 100):
         """Initialize the ML classifier.
 
         Args:
             model_path: Path to pickled logistic regression model
-            voyage_api_key: Voyage AI API key for embeddings
-            timeout_ms: Inference timeout in milliseconds
+            embedding_model_name: Name of sentence-transformers model for embeddings
+            timeout_ms: Inference timeout in milliseconds (informational only, local inference is fast)
 
         Raises:
             FileNotFoundError: If model file doesn't exist
-            ValueError: If API key is empty
         """
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
-        if not voyage_api_key:
-            raise ValueError("Voyage API key is required")
-
         self.model_path = model_path
-        self.voyage_api_key = voyage_api_key
+        self.embedding_model_name = embedding_model_name
         self.timeout_ms = timeout_ms
 
-        # Load model
+        # Load pickled classifier
         with open(model_path, "rb") as f:
             self.model = pickle.load(f)
 
-        # Initialize Voyage client
-        self.client = Client(api_key=voyage_api_key)
+        # Load embedding model
+        self.embedding_model = SentenceTransformer(embedding_model_name)
 
-        logger.info(f"ML classifier initialized with model from {model_path}")
+        logger.info(f"ML classifier initialized with model from {model_path} using {embedding_model_name}")
 
     def score(self, text: str) -> Optional[float]:
         """Score text for injection likelihood.
@@ -62,17 +58,12 @@ class MLInjectionClassifier:
             return 0.0
 
         try:
-            # Get embedding from Voyage
-            response = self.client.embed(
-                texts=[text],
-                model="voyage-3",
-                input_type="query"
-            )
-            embedding = response.embeddings[0]
+            # normalize_embeddings=True puts vectors on the unit hypersphere, which
+            # improves logistic regression and must match how the model was trained.
+            embedding = self.embedding_model.encode([text], normalize_embeddings=True)
 
-            # Get probability from classifier
-            # model.predict_proba returns [[prob_negative, prob_positive]]
-            prob_injection = self.model.predict_proba([embedding])[0][1]
+            # predict_proba expects shape (n_samples, n_features); encode already returns (1, dim)
+            prob_injection = self.model.predict_proba(embedding)[0][1]
 
             # Scale 0-1 to 0-5 to match existing threshold system
             score = prob_injection * 5.0
