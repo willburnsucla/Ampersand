@@ -35,7 +35,6 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
 
   const sessionRef = useRef<{ projectId: string; branchId: string } | null>(null);
   const isSendingRef = useRef(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const refreshBeats = async (session: { projectId: string; branchId: string }) => {
     try {
@@ -45,10 +44,6 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
       console.error('Failed to fetch beats:', err);
     }
   };
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
 
   useEffect(() => {
     getOrCreateSession('My Ampersand Story')
@@ -180,8 +175,6 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
             </div>
           )}
 
-          <div ref={messagesEndRef} />
-
           {/* Example Prompts - Show only at start */}
           {messages.length <= 1 && !isLoading && (
             <div className="w-full space-y-4">
@@ -209,10 +202,7 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter')  handleSend();
-                if (e.key === 'Escape') setInput('');
-              }}
+              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
               placeholder="Tell me about your story idea..."
               disabled={isLoading}
               className="flex-1 px-6 py-4 rounded-xl bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
