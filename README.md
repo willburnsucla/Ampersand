@@ -181,6 +181,36 @@ Backend tests run against a throwaway Postgres via testcontainers, so Docker mus
 
 ---
 
+## Prompt security
+
+Every writer message passes through `backend/app/security/` before reaching the extractor:
+
+1. **Sanitizer** — NFKC Unicode normalization, strips control characters (keeps `\n`/`\t`), truncates to 10 000 chars.
+2. **Injection detector (hybrid)** — scores the text 0–5. Heuristic path: matches keywords (`"ignore"`, `"override"`, `"act as"`, …) and suspicious two/three-word combinations (`"ignore"` + `"system prompt"`, etc.) — 1 point per keyword, 1.5× multiplier for combinations. Optional ML path: if `SECURITY_ML_MODEL_PATH` points to a pickled logistic-regression model trained on `sentence-transformers/all-MiniLM-L6-v2` embeddings, the two scores are merged (max wins, so known-bad patterns always fire even if the ML under-scores them). Default threshold: 3.0.
+3. **Context validator** — enforces size limits on each context field and checks branch consistency across the full `LlmContextV2` to prevent cross-tenant leakage.
+
+When a request is rejected a `SecurityException` is raised and the router returns `400 Bad Request` with `{ "detail": "...", "code": "injection_detected" }`.
+
+### Security env vars
+
+| Variable | Default | Effect |
+|---|---|---|
+| `SECURITY_INJECTION_SCORE_THRESHOLD` | `3.0` | Raise to reduce false positives in dev |
+| `SECURITY_ENFORCE_INJECTION_REJECTION` | `true` | Set to `false` to log-but-allow (never in prod) |
+| `SECURITY_ML_MODEL_PATH` | _(unset)_ | Path to pickled LR model; falls back to heuristics if absent |
+| `SECURITY_EMBEDDING_MODEL_NAME` | `all-MiniLM-L6-v2` | sentence-transformers model for ML embeddings |
+| `SECURITY_VERBOSE_LOGGING` | `false` | Emit per-request debug scores to the log |
+
+### Troubleshooting false positives
+
+Story prose that uses words like `"ignore"`, `"pretend"`, or `"roleplay"` can trip the heuristic scorer. Short-term fixes:
+
+- Raise the threshold: `SECURITY_INJECTION_SCORE_THRESHOLD=5.0` (or `=99` to effectively disable)
+- Set `SECURITY_ENFORCE_INJECTION_REJECTION=false` to allow the request through with a warning logged
+- Train or fine-tune the ML classifier on story-genre text, then point `SECURITY_ML_MODEL_PATH` at the new model
+
+---
+
 ## Team
 
 | Person | GitHub |
