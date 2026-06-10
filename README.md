@@ -118,10 +118,7 @@ Leave `EXTRACTOR_BACKEND=mock` to skip Gemini entirely (deterministic beats, no 
 
 make db-up               # docker compose up -d db (pgvector/pgvector:pg16), or point at Supabase
 make migrate             # alembic upgrade head
-make dev                 # real backend (:8000) + Next.js frontend (:3000)
-```
-
-> **Note:** `make dev` starts the Next.js (`frontend/`) app. To run the Vite frontend in real mode, start the backend with `AMPERSAND_BACKEND_MODE=real` manually and run `npm run dev` inside `ez_frontend_clean/`.
+make dev                 # real backend (:8000) + Vite frontend ez_frontend_clean (:5173)
 
 Real mode verifies the Supabase JWT server-side and persists to Postgres; it refuses to boot without `SUPABASE_JWT_SECRET`. Use port **6543** (session pooler) for the Supabase connection strings — port 5432 is blocked on most university networks.
 
@@ -133,7 +130,7 @@ Real mode verifies the Supabase JWT server-side and persists to Postgres; it ref
 make help            # list every target
 make install         # uv sync + npm install (Next.js frontend)
 make dev-mock        # mock backend + Vite frontend ez_frontend_clean (no DB)
-make dev             # real backend + Next.js frontend (needs .env + Docker)
+make dev             # real backend + Vite frontend ez_frontend_clean (needs .env + Docker)
 make migrate         # alembic upgrade head
 make test-backend    # pytest (212 green)
 make lint            # ruff + eslint
