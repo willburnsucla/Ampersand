@@ -76,3 +76,11 @@ export interface Issue {
   detected_at: string;
   resolved_at: string | null;
 }
+
+export interface ConversationTurn {
+  id: string;
+  branch_id: string;
+  role: "writer" | "assistant";
+  content: string;
+  created_at: string;
+}
