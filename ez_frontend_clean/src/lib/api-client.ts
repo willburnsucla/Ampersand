@@ -2,6 +2,7 @@ import type {
   Beat,
   Branch,
   Character,
+  ConversationTurn,
   Issue,
   Project,
   Theme,
@@ -101,6 +102,10 @@ export async function listIssues(projectId: string, branchId: string): Promise<I
 
 export async function deleteProject(projectId: string): Promise<void> {
   await request<void>(`/projects/${projectId}`, { method: "DELETE" });
+}
+
+export async function listTurns(projectId: string, branchId: string): Promise<ConversationTurn[]> {
+  return request<ConversationTurn[]>(`/projects/${projectId}/branches/${branchId}/turns`);
 }
 
 export async function sendTurn(body: TurnRequest): Promise<TurnResult> {
