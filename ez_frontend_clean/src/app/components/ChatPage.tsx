@@ -158,7 +158,7 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
       }
     } catch (err) {
       console.error('Turn failed:', err);
-      setError('Failed to get a response. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to get a response. Please try again.');
     } finally {
       setIsLoading(false);
       isSendingRef.current = false;
