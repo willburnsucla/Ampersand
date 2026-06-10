@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { GripVertical, X } from "lucide-react";
+import { Check, GripVertical, X } from "lucide-react";
 import type { Beat } from "../../lib/types";
 
 interface LocalBeat {
@@ -45,7 +45,7 @@ function toLocal(beats: Beat[]): LocalBeat[] {
     }));
 }
 
-export function BeatGraph({ beats, onDeleteBeat }: { beats: Beat[]; onDeleteBeat?: (id: string) => void }) {
+export function BeatGraph({ beats, onDeleteBeat, onCommitBeat }: { beats: Beat[]; onDeleteBeat?: (id: string) => void; onCommitBeat?: (id: string) => void }) {
   const [local, setLocal] = useState<LocalBeat[]>(() => toLocal(beats));
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
@@ -94,6 +94,11 @@ export function BeatGraph({ beats, onDeleteBeat }: { beats: Beat[]; onDeleteBeat
   const deleteBeat = (id: string) => {
     setLocal(prev => prev.filter(b => b.id !== id).map((b, i) => ({ ...b, order: i })));  // optimistic
     onDeleteBeat?.(id);  // persist; the parent refetches so a failure reverts
+  };
+
+  const commitBeat = (id: string) => {
+    setLocal(prev => prev.map(b => b.id === id ? { ...b, status: "committed" } : b));  // optimistic
+    onCommitBeat?.(id);  // persist; the parent refetches so a failure reverts
   };
 
   const onDragStart = (id: string) => { dragIdRef.current = id; };
@@ -186,6 +191,17 @@ export function BeatGraph({ beats, onDeleteBeat }: { beats: Beat[]; onDeleteBeat
               >
                 {beat.logline}
               </p>
+
+              {/* Commit a proposed beat (stays visible so the action is obvious) */}
+              {beat.status === "proposed" && (
+                <button
+                  onClick={() => commitBeat(beat.id)}
+                  title="Commit this beat"
+                  className="flex-shrink-0 text-primary/70 hover:text-primary transition-colors mt-0.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+              )}
 
               {/* Delete */}
               <button

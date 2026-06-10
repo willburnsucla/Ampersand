@@ -83,6 +83,18 @@ export async function deleteBeat(projectId: string, branchId: string, beatId: st
   });
 }
 
+export async function setBeatStatus(
+  projectId: string,
+  branchId: string,
+  beatId: string,
+  status: Beat["status"],
+): Promise<Beat> {
+  return request<Beat>(`/projects/${projectId}/branches/${branchId}/beats/${beatId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
 export async function listBranches(projectId: string): Promise<Branch[]> {
   return request<Branch[]>(`/projects/${projectId}/branches`);
 }
@@ -118,7 +130,18 @@ interface Session {
   branchId: string;
 }
 
-export async function getOrCreateSession(title = "My Story"): Promise<Session> {
+export async function getOrCreateSession(title = "My Story", projectId?: string): Promise<Session> {
+  // Re-enter a specific story: open it directly, ignoring any cached session.
+  if (projectId) {
+    const branches = await listBranches(projectId);
+    const branchId = branches.length > 0
+      ? branches[0].id
+      : (await createBranch({ project_id: projectId, name: "main" })).id;
+    const session: Session = { projectId, branchId };
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    return session;
+  }
+
   const projects = await listProjects();
 
   const cached = sessionStorage.getItem(SESSION_KEY);

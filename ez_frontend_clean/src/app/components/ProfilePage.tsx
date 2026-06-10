@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, MessageSquare, BookOpen, TrendingUp, Search, Plus, X, Loader2, Trash2 } from 'lucide-react';
+import { ArrowLeft, MessageSquare, BookOpen, TrendingUp, Search, Plus, X, Loader2, Trash2, PenLine, BarChart3 } from 'lucide-react';
 import { listProjects, createProject, createBranch, clearSession, deleteProject } from '../../lib/api-client';
 import type { Project } from '../../lib/types';
 
@@ -65,10 +65,11 @@ function NewStoryForm({ onCancel, onCreate }: NewStoryFormProps) {
 interface ProfilePageProps {
   onNavigateBack: () => void;
   onNavigateStory: (project: Project) => void;
+  onOpenStory: (project: Project) => void;
   onStartNewStory: (project: Project) => void;
 }
 
-export function ProfilePage({ onNavigateBack, onNavigateStory, onStartNewStory }: ProfilePageProps) {
+export function ProfilePage({ onNavigateBack, onNavigateStory, onOpenStory, onStartNewStory }: ProfilePageProps) {
   const [stories, setStories]         = useState<Project[]>([]);
   const [isLoading, setIsLoading]     = useState(true);
   const [error, setError]             = useState<string | null>(null);
@@ -226,7 +227,7 @@ export function ProfilePage({ onNavigateBack, onNavigateStory, onStartNewStory }
               {filteredStories.map(story => (
                 <div
                   key={story.id}
-                  onClick={() => onNavigateStory(story)}
+                  onClick={() => onOpenStory(story)}
                   className="w-full bg-card border border-border rounded-xl p-6 hover:border-primary transition-colors text-left group cursor-pointer"
                 >
                   <div className="flex items-start justify-between mb-3">
@@ -254,7 +255,22 @@ export function ProfilePage({ onNavigateBack, onNavigateStory, onStartNewStory }
                     }`}>
                       {story.primary_branch_id ? 'Active' : 'No branches'}
                     </span>
-                    <span className="text-xs">Click to view analysis →</span>
+                    <div className="ml-auto flex items-center gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onOpenStory(story); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
+                      >
+                        <PenLine className="w-3.5 h-3.5" />
+                        Continue writing
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onNavigateStory(story); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary text-foreground text-xs font-medium hover:bg-accent transition-colors"
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        Analysis
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

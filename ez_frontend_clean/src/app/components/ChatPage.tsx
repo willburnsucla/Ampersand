@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { User, Send, Sparkles, BookOpen, GitBranch, LogOut } from 'lucide-react';
-import { deleteBeat, forkBranch, getOrCreateSession, listBeats, listBranches, sendTurn } from '../../lib/api-client';
+import { User, Send, Sparkles, BookOpen, GitBranch, LogOut, Check } from 'lucide-react';
+import { deleteBeat, forkBranch, getOrCreateSession, listBeats, listBranches, sendTurn, setBeatStatus } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth';
 import type { Beat, Branch } from '../../lib/types';
 import { BeatGraph } from './BeatGraph';
@@ -19,7 +19,7 @@ const examplePrompts = [
   "Two ships meet in the harbor at dawn, one carrying a dangerous secret.",
 ];
 
-export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void }) {
+export function ChatPage({ onNavigateProfile, projectId }: { onNavigateProfile: () => void; projectId?: string }) {
   const { signOut } = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -98,12 +98,40 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
     await refreshBeats(session);  // resync either way, so a failed delete puts the beat back
   };
 
+  const handleCommitBeat = async (beatId: string) => {
+    if (!sessionRef.current) return;
+    const session = sessionRef.current;
+    try {
+      await setBeatStatus(session.projectId, session.branchId, beatId, 'committed');
+    } catch (err) {
+      console.error('Commit beat failed:', err);
+      setError('Could not commit that beat.');
+    }
+    await refreshBeats(session);  // resync either way, so a failed commit reverts
+  };
+
+  const handleCommitAll = async () => {
+    if (!sessionRef.current) return;
+    const session = sessionRef.current;
+    const proposed = beats.filter(b => b.status === 'proposed');
+    if (proposed.length === 0) return;
+    try {
+      await Promise.all(
+        proposed.map(b => setBeatStatus(session.projectId, session.branchId, b.id, 'committed'))
+      );
+    } catch (err) {
+      console.error('Commit all failed:', err);
+      setError('Could not commit the proposed beats.');
+    }
+    await refreshBeats(session);
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
   useEffect(() => {
-    getOrCreateSession('My Ampersand Story')
+    getOrCreateSession('My Ampersand Story', projectId)
       .then(async (session) => {
         sessionRef.current = session;
         setActiveBranchId(session.branchId);
@@ -334,8 +362,17 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
               </button>
             </div>
           )}
+          {beats.some(b => b.status === 'proposed') && (
+            <button
+              onClick={handleCommitAll}
+              className="mx-4 mt-3 mb-1 flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors flex-shrink-0"
+            >
+              <Check className="w-3.5 h-3.5" />
+              Commit all {beats.filter(b => b.status === 'proposed').length} proposed
+            </button>
+          )}
           <div className="flex-1 overflow-y-auto pt-4">
-            <BeatGraph beats={beats} onDeleteBeat={handleDeleteBeat} />
+            <BeatGraph beats={beats} onDeleteBeat={handleDeleteBeat} onCommitBeat={handleCommitBeat} />
           </div>
         </div>
 
