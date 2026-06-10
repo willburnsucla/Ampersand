@@ -66,12 +66,12 @@ dev-mock: ## Start mock backend (no DB needed) + the ez_frontend_clean Vite dev 
 	@echo "Starting frontend (Vite) on :5173 ..."
 	cd ez_frontend_clean && npm install && npm run dev
 
-dev: db-up migrate ## Start real backend + Next.js dev server (requires .env)
+dev: db-up migrate ## Start real backend + Vite frontend ez_frontend_clean (requires .env)
 	@echo "Starting real backend on :8000 ..."
 	cd $(BACKEND_DIR) && AMPERSAND_BACKEND_MODE=real \
 		uv run uvicorn app.main:app --reload --port 8000 &
-	@echo "Starting Next.js dev server on :3000 ..."
-	cd $(FRONTEND_DIR) && npm run dev
+	@echo "Starting frontend (Vite) on :5173 ..."
+	cd ez_frontend_clean && npm install && npm run dev
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 test-backend: ## Run pytest
