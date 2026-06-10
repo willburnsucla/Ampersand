@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { User, Send, Sparkles, BookOpen, GitBranch, LogOut } from 'lucide-react';
-import { deleteBeat, forkBranch, getOrCreateSession, listBeats, listBranches, sendTurn } from '../../lib/api-client';
+import { deleteBeat, forkBranch, getOrCreateSession, listBeats, listBranches, listTurns, sendTurn } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth';
 import type { Beat, Branch } from '../../lib/types';
 import { BeatGraph } from './BeatGraph';
@@ -109,6 +109,16 @@ export function ChatPage({ onNavigateProfile }: { onNavigateProfile: () => void 
         setActiveBranchId(session.branchId);
         await refreshBeats(session);
         await refreshBranches(session.projectId);
+
+        const turns = await listTurns(session.projectId, session.branchId);
+        if (turns.length > 0) {
+          setMessages(turns.map((t) => ({
+            id: t.id,
+            role: t.role === 'writer' ? 'user' : 'assistant',
+            content: t.content,
+            timestamp: new Date(t.created_at),
+          })));
+        }
       })
       .catch((err) => {
         console.error('Failed to create session:', err);
