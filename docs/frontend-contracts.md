@@ -1,10 +1,10 @@
 # Frontend API Contract
 
-What the frontend team builds against. None of these endpoints exist yet (Module 6 work). Build against mocks of the shapes below and the real backend will satisfy them when it lands.
+What the frontend team builds against. All endpoints below are live in `router_v2.py` on `/api/v2`. Build against the real backend with `make dev-mock` (no DB needed) or swap in mocks of the shapes below during parallel frontend development.
 
 ## Setup
 
-**Base URL:** the API base from your env, plus `/api/v1` (FastAPI). Defaults to `http://localhost:8000/api/v1` in dev.
+**Base URL:** the API base from your env, plus `/api/v2` (FastAPI). Defaults to `http://localhost:8000/api/v2` in dev.
 
 **Auth:** every request carries `Authorization: Bearer <supabase_jwt>`. Get the JWT from the Supabase JS client.
 
@@ -207,7 +207,7 @@ Right now there's one action type:
 
 The frontend can either auto-apply it (update URL to the new branch) or render it as a clickable confirmation in the chat. Frontend's call. Most turns return an empty array or omit the field.
 
-**Latency:** the POST is synchronous and waits for extraction and delta apply, roughly 2 to 6 seconds with Claude. Show the user's message optimistically, render a thinking indicator, then drop the bot reply when the response arrives.
+**Latency:** the POST is synchronous and waits for extraction and delta apply, roughly 2 to 6 seconds with Gemini. Show the user's message optimistically, render a thinking indicator, then drop the bot reply when the response arrives.
 
 **Dedup:** any beat the bot proposed during this turn also arrives via the Realtime `beats` channel. Dedupe by `beat.id` so it doesn't appear twice.
 
@@ -348,6 +348,4 @@ Backend stays neutral on these. Pick whatever serves the UX best.
 
 ## Status
 
-None of these endpoints exist yet. Modules 3 through 6 (ORM, repos, services, HTTP layer) are the work that lands them. Build against mocks of the shapes above and the real backend slots in when the modules ship.
-
-The MockExtractor in `backend/app/services/extractor.py` is already the dev source for fake bot replies. Module 6 wires it into `POST /conversation/turn` so the chat works end-to-end against mocks before Claude is real.
+All endpoints above are live. Run `make dev-mock` to bring up the full stack (no DB required) — it uses `MockExtractorV2` in `backend/app/services/extractor_v2.py` for deterministic bot replies. Set `EXTRACTOR_BACKEND=gemini` in `backend/.env` to switch to live Gemini extraction without changing anything else.
