@@ -115,6 +115,18 @@ export async function sendTurn(body: TurnRequest): Promise<TurnResult> {
   });
 }
 
+export async function exportBranch(projectId: string, branchId: string): Promise<string> {
+  const token = await getToken();
+  const res = await fetch(`${API_V2_BASE}/projects/${projectId}/branches/${branchId}/export`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text);
+  }
+  return res.text();
+}
+
 // Session is stored in sessionStorage so a page refresh reuses the same project/branch.
 const SESSION_KEY = "ampersand_session_v2";
 
