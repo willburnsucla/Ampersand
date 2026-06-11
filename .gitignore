@@ -15,6 +15,8 @@ node_modules/
 .next/
 out/
 .turbo/
+# stray root lockfile; the real frontend lockfile lives in ez_frontend_clean/
+/package-lock.json
 
 # Env
 backend/.env
@@ -41,6 +43,10 @@ Thumbs.db
 # Editor
 .vscode/settings.json
 .idea/
+
+# Local scratch, never commit
+.autonomous-notes.md
+.claude/
 
 # Logs
 *.log
