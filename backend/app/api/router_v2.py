@@ -9,6 +9,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import PlainTextResponse
 
 from app.auth.supabase_gate import UserContext, get_current_user
 from app.core.dependencies import get_prompt_security_manager
@@ -198,6 +199,49 @@ async def delete_beat(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
     if not await beats.delete(beat_id, branch_id=branch_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Beat not found")
+
+
+# Export
+
+_TP_LABELS = {
+    "tp1": "Inciting Incident",
+    "tp2": "Rising Action",
+    "tp3": "Midpoint",
+    "tp4": "Dark Night",
+    "tp5": "Climax",
+}
+
+
+@router_v2.get("/projects/{project_id}/branches/{branch_id}/export", response_class=PlainTextResponse)
+async def export_branch(
+    project_id: UUID,
+    branch_id: UUID,
+    projects: SqlProjectRepo = Depends(get_project_repo),
+    branches: SqlBranchRepo = Depends(get_branch_repo_v2),
+    beats: SqlBeatRepo = Depends(get_beat_repo),
+    user: UserContext = Depends(get_current_user),
+) -> str:
+    project = await projects.get(project_id, owner_id=user.user_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    branch = await branches.get(branch_id, project_id=project_id)
+    if branch is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
+
+    all_beats = await beats.list(branch_id=branch_id)
+    committed = [b for b in all_beats if b.status == "committed"]
+
+    lines: list[str] = [f"# {project.title}", ""]
+    for beat in committed:
+        lines.append(f"## Beat {beat.sequence_index_in_branch + 1} — {beat.logline}")
+        if beat.turning_point:
+            lines.append(f"\n**Turning Point:** {_TP_LABELS.get(beat.turning_point, beat.turning_point)}")
+        prose = beat.content.get("prose") or beat.content.get("text")
+        if prose:
+            lines.append(f"\n{prose}")
+        lines.append("\n---\n")
+
+    return "\n".join(lines)
 
 
 # Characters
