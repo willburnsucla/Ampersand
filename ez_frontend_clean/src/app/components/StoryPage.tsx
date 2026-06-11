@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Sparkles, Users, Hash, AlertCircle, CheckCircle2, Loader2, BookOpen } from 'lucide-react';
+import { ArrowLeft, Sparkles, Users, Hash, AlertCircle, CheckCircle2, Loader2, BookOpen, Download } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
-import { listBeats, listBranches, listCharacters, listThemes, listIssues } from '../../lib/api-client';
+import { listBeats, listBranches, listCharacters, listThemes, listIssues, exportBranch } from '../../lib/api-client';
 import type { Beat, Branch, Character, Issue, Theme } from '../../lib/types';
 
 interface StoryPageProps {
@@ -108,6 +108,7 @@ export function StoryPage({ onNavigateBack, projectId, projectTitle }: StoryPage
   const [issues, setIssues]         = useState<Issue[]>([]);
   const [isLoading, setIsLoading]   = useState(true);
   const [error, setError]           = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     if (!projectId) return;
@@ -135,6 +136,27 @@ export function StoryPage({ onNavigateBack, projectId, projectTitle }: StoryPage
       .finally(() => setIsLoading(false));
   }, [projectId]);
 
+  const mainBranch = branches[0] ?? null;
+
+  async function handleExport() {
+    if (!mainBranch) return;
+    setIsExporting(true);
+    try {
+      const md = await exportBranch(projectId, mainBranch.id);
+      const blob = new Blob([md], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${projectTitle || 'story'}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   const sortedBeats  = [...beats].sort((a, b) => a.sequence_index_in_branch - b.sequence_index_in_branch);
   const openIssues   = issues.filter(i => i.status === 'open');
   const committedChars   = characters.filter(c => c.status === 'committed');
@@ -157,7 +179,21 @@ export function StoryPage({ onNavigateBack, projectId, projectTitle }: StoryPage
               <Sparkles className="w-8 h-8 text-primary" />
               <h1 className="text-4xl">{projectTitle || 'Story'}</h1>
             </div>
-            {!isLoading && <BeatStatusBar beats={beats} />}
+            {!isLoading && (
+              <div className="flex items-center gap-3">
+                <BeatStatusBar beats={beats} />
+                <button
+                  onClick={handleExport}
+                  disabled={isExporting || !mainBranch}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity"
+                >
+                  {isExporting
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Download className="w-4 h-4" />}
+                  Export
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
